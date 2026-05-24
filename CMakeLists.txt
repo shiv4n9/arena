@@ -17,7 +17,12 @@ include_directories(src)
 add_library(arctic_core
     src/ou_sampler.cpp
     src/single_agent.cpp
+    src/live_latency.cpp
 )
+
+if(WIN32)
+    target_link_libraries(arctic_core PRIVATE ws2_32)
+endif()
 
 # Main executable
 add_executable(arctic src/main.cpp)
@@ -28,3 +33,20 @@ enable_testing()
 add_executable(test_ou_sampler tests/test_ou_sampler.cpp)
 target_link_libraries(test_ou_sampler PRIVATE arctic_core)
 add_test(NAME test_ou_sampler COMMAND test_ou_sampler)
+
+# Sweep Generator
+add_executable(arctic_sweep src/sweep_generator.cpp)
+target_link_libraries(arctic_sweep PRIVATE arctic_core)
+
+add_executable(test_ks src/test_ks.cpp)
+target_link_libraries(test_ks PRIVATE arctic_core)
+
+add_executable(live_adaptation_logger src/live_adaptation_logger.cpp)
+target_link_libraries(live_adaptation_logger PRIVATE arctic_core)
+
+if(WIN32)
+    target_link_libraries(arctic PRIVATE ws2_32)
+    target_link_libraries(arctic_sweep PRIVATE ws2_32)
+    target_link_libraries(test_ks PRIVATE ws2_32)
+    target_link_libraries(live_adaptation_logger PRIVATE ws2_32)
+endif()

@@ -1,29 +1,35 @@
 #include "ou_sampler.hpp"
 #include "single_agent.hpp"
 #include "race_resolver.hpp"
-#include "live_latency.hpp"
 #include <iostream>
 #include <vector>
 #include <iomanip>
 #include <cmath>
-#include <algorithm>
-#include <thread>
-#include <chrono>
+#include <fstream>
+#include <string>
 
-void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_name) {
-    // Process parameters
+struct SweepResult {
+    double sigma_A;
+    double sigma_B;
+    double nash_b_A;
+    double win_rate_A;
+    double win_rate_B;
+    double avg_pnl_A;
+    double avg_pnl_Solo;
+    double competitive_cost;
+};
+
+SweepResult run_sweep_step(double sigma_A, double sigma_B) {
     double theta = 2.0;
     double mu = 0.0;
     double sigma_V = 1.0;
     double dt = 0.01;
     int steps = 1000;
-    int num_paths = 10000; // Reduced for live updates
+    int num_paths = 50000;
     double cost_c = 0.5;
-    
-    double mu_delta = -4.0; 
+    double mu_delta = -4.0;
     
     arctic::OUSampler sampler(theta, mu, sigma_V, dt);
-    
     arctic::SingleAgent agent_solo(mu_delta, sigma_A, dt);
     arctic::SingleAgent agent_a(mu_delta, sigma_A, dt);
     arctic::SingleAgent agent_b(mu_delta, sigma_B, dt);
@@ -60,10 +66,8 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     for (int p = 0; p < num_paths; ++p) {
         std::vector<double> v_history;
         v_history.reserve(steps);
-        
         double v_t = mu;
         v_history.push_back(v_t);
-        
         bool solo_acted = false;
         bool game_resolved = false;
         
@@ -111,53 +115,35 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     double win_rate_b = static_cast<double>(trades_b) / (trades_a + trades_b);
     double avg_pnl_solo = trades_solo ? pnl_solo / num_paths : 0.0;
     double avg_pnl_a = trades_a ? pnl_a / num_paths : 0.0;
+    double competitive_cost = (sigma_A >= sigma_B) ? (avg_pnl_solo - avg_pnl_a) : 0.0;
     
-    std::cout << "\nARCTIC Simulation: " << scenario_name << std::endl;
-    std::cout << "Live sigma_A = " << sigma_A << ", Static sigma_B = " << sigma_B << std::endl;
-    std::cout << "Nash b_A = " << b_a << std::endl;
-    std::cout << "--------------------------------------------------------" << std::endl;
-    std::cout << std::fixed << std::setprecision(4);
-    std::cout << "Agent A    | Trades: " << trades_a << " | Win Rate: " << win_rate_a * 100.0 << "% | Avg PnL: " << avg_pnl_a << std::endl;
-    std::cout << "Agent B    | Trades: " << trades_b << " | Win Rate: " << win_rate_b * 100.0 << "%" << std::endl;
-    
-    if (sigma_A > sigma_B) {
-        std::cout << "-> Competitive Cost of Live Latency (Solo Avg PnL - Agent A Avg PnL): " << (avg_pnl_solo - avg_pnl_a) << std::endl;
-    }
+    return {sigma_A, sigma_B, b_a, win_rate_a, win_rate_b, avg_pnl_a, avg_pnl_solo, competitive_cost};
 }
 
 int main() {
-    std::cout << "Initializing Live UDP Latency Measurement Thread..." << std::endl;
-    // Bind to localhost 12345 for testing the measurement loop
-    arctic::LiveLatency live_latency("127.0.0.1", 12345);
-    live_latency.start();
+    std::ofstream out("data/sweep_results.csv");
+    out << "Sigma_A,Sigma_B,Nash_B_A,Win_Rate_A,Win_Rate_B,Avg_PnL_A,Avg_PnL_Solo,Competitive_Cost\n";
     
-    std::cout << "Warming up online MLE fitting..." << std::endl;
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    double sigma_B = 0.1;
     
-    // We mock Agent B as a static competitor with low variance
-    double sigma_B_static = 0.2;
-    
-    // Continuous live reporting loop
-    for (int iter = 1; iter <= 5; ++iter) {
-        std::cout << "\n=== Live Update Tick " << iter << " ===" << std::endl;
+    std::cout << "Running Variance Gap Parameter Sweep...\n";
+    for (double sigma_A = 0.1; sigma_A <= 1.51; sigma_A += 0.1) {
+        std::cout << "Evaluating Sigma_A = " << sigma_A << "..." << std::flush;
+        auto result = run_sweep_step(sigma_A, sigma_B);
         
-        // Atomically read the live parameters measured by the background thread
-        double live_mu = live_latency.get_mu();
-        double live_sigma = live_latency.get_sigma();
-        
-        std::cout << "Fitted Live Latency Parameters: mu=" << live_mu << ", sigma=" << live_sigma << std::endl;
-        
-        if (std::isnan(live_sigma) || live_sigma <= 0.0) {
-            std::cout << "Waiting for sufficient live samples to compute variance..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-        
-        run_simulation(live_sigma, sigma_B_static, "Live Dynamic Game Engine");
-        
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        out << result.sigma_A << ","
+            << result.sigma_B << ","
+            << result.nash_b_A << ","
+            << result.win_rate_A << ","
+            << result.win_rate_B << ","
+            << result.avg_pnl_A << ","
+            << result.avg_pnl_Solo << ","
+            << result.competitive_cost << "\n";
+            
+        std::cout << " Done. (Cost = " << result.competitive_cost << ")\n";
     }
     
-    live_latency.stop();
+    out.close();
+    std::cout << "Sweep complete! Data written to data/sweep_results.csv\n";
     return 0;
 }
