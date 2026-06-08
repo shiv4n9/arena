@@ -81,9 +81,11 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         const gridLine = new Float32Array([-1.0, yNdc, 1.0, yNdc]);
         gl.bufferData(gl.ARRAY_BUFFER, gridLine, gl.STATIC_DRAW);
         if (val === 0) {
-          gl.uniform4fv(colorLoc, [0.22, 0.20, 0.12, 1.0]);
+          // zero axis — medium warm brown
+          gl.uniform4fv(colorLoc, [0.74, 0.68, 0.55, 1.0]);
         } else {
-          gl.uniform4fv(colorLoc, [0.11, 0.10, 0.06, 1.0]);
+          // minor horizontal grid — soft tan on cream
+          gl.uniform4fv(colorLoc, [0.84, 0.79, 0.67, 1.0]);
         }
         gl.drawArrays(gl.LINES, 0, 2);
       }
@@ -91,7 +93,7 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         const xNdc = (i / numPoints) * 2.0 - 1.0;
         const gridLine = new Float32Array([xNdc, -1.0, xNdc, 1.0]);
         gl.bufferData(gl.ARRAY_BUFFER, gridLine, gl.STATIC_DRAW);
-        gl.uniform4fv(colorLoc, [0.09, 0.08, 0.05, 1.0]);
+        gl.uniform4fv(colorLoc, [0.86, 0.81, 0.70, 1.0]);
         gl.drawArrays(gl.LINES, 0, 2);
       }
     };
@@ -110,8 +112,8 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
       
       const heapF32 = new Float32Array(wasmMemory.buffer);
 
-      // Match the warm near-black ARENA canvas: #0c0b08
-      gl.clearColor(0.047, 0.043, 0.031, 1.0);
+      // Match the warm cream ARENA chart panel: ~#f3eddf
+      gl.clearColor(0.953, 0.929, 0.875, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       
       gl.enable(gl.BLEND);
@@ -130,12 +132,12 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         gl.drawArrays(gl.LINE_STRIP, 0, numPoints);
       };
 
-      // Rival boundary: vermilion (#ff5b3a)
-      drawLineStrip(bBPtr, [1.0, 0.357, 0.227, 0.55]);
-      // Our boundary: electric lime (#c8fa3c)
-      drawLineStrip(bAPtr, [0.784, 0.980, 0.235, 0.8]);
-      // OU signal: warm bone (#f4efe1)
-      drawLineStrip(ouPtr, [0.957, 0.937, 0.882, 0.92]);
+      // Rival boundary: terracotta (#d9512a)
+      drawLineStrip(bBPtr, [0.851, 0.318, 0.165, 0.6]);
+      // Our boundary: teal (#0f8c7e)
+      drawLineStrip(bAPtr, [0.059, 0.549, 0.494, 0.75]);
+      // OU signal: indigo (#5a47d6)
+      drawLineStrip(ouPtr, [0.353, 0.278, 0.839, 0.95]);
 
       animationId = requestAnimationFrame(renderLoop);
     };

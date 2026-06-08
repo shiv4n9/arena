@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "prerender": "node scripts/prerender-formulas.mjs",
+    "dev": "node scripts/prerender-formulas.mjs && vite",
+    "build": "node scripts/prerender-formulas.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

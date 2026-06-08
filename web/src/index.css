@@ -2,39 +2,44 @@
 
 /* =====================================================================
    ARENA — Agentic Racing Engine with Network Analysis
-   Palette: warm near-black canvas + electric lime / vermilion / periwinkle.
-   Deliberately NOT the usual cyan-on-navy fintech look.
+   Soothing warm-beige "paper" canvas + a distinctive teal / terracotta /
+   indigo racing palette. Calm on the eyes, still catches you off guard.
    ===================================================================== */
 @theme {
-  --color-bg: #0c0b08;
-  --color-bg-deep: #070605;
-  --color-surface: #141209;
-  --color-surface-raised: #1c190f;
-  --color-border: #2c2716;
-  --color-border-subtle: #1d1a0e;
+  --color-bg: #ebe3d2;          /* warm beige paper */
+  --color-bg-deep: #e0d6c0;     /* inset boxes / chart */
+  --color-surface: #f4eee1;     /* card cream */
+  --color-surface-raised: #faf6ec;
+  --color-border: #cdbfa1;
+  --color-border-subtle: #ddd2bb;
 
-  --color-text-primary: #f4efe1;
-  --color-text-secondary: #a8a08a;
-  --color-text-tertiary: #6c6552;
+  --color-text-primary: #2b2620;   /* dark espresso */
+  --color-text-secondary: #6c6253;
+  --color-text-tertiary: #9c8e77;
 
-  /* signature trio */
-  --color-lime: #c8fa3c;        /* "you" / agent A */
-  --color-lime-dim: #8aa82a;
-  --color-vermilion: #ff5b3a;   /* rival / agent B */
-  --color-vermilion-dim: #b23d27;
-  --color-periwinkle: #9d8cff;  /* signal / highlights */
-  --color-periwinkle-dim: #6a5ec2;
+  /* racing trio */
+  --color-teal: #0f8c7e;          /* YOU / agent A */
+  --color-teal-dim: #0a6258;
+  --color-terracotta: #d9512a;    /* RIVAL / agent B */
+  --color-terracotta-dim: #a83c1e;
+  --color-indigo: #5a47d6;        /* signal / highlights */
+  --color-indigo-dim: #3f31a0;
+  --color-gold: #c8901a;
 
-  /* status */
-  --color-signal-green: #c8fa3c;
-  --color-signal-red: #ff5b3a;
-  --color-signal-amber: #ffb23c;
-
-  /* legacy aliases used by older markup */
-  --color-accent: #c8fa3c;
-  --color-accent-dim: #8aa82a;
-  --color-boundary-cyan: #c8fa3c;
-  --color-boundary-magenta: #ff5b3a;
+  /* legacy aliases — old class names keep resolving to the new palette */
+  --color-lime: #0f8c7e;
+  --color-lime-dim: #0a6258;
+  --color-vermilion: #d9512a;
+  --color-vermilion-dim: #a83c1e;
+  --color-periwinkle: #5a47d6;
+  --color-periwinkle-dim: #3f31a0;
+  --color-signal-green: #0f8c7e;
+  --color-signal-red: #d9512a;
+  --color-signal-amber: #c8901a;
+  --color-accent: #0f8c7e;
+  --color-accent-dim: #0a6258;
+  --color-boundary-cyan: #0f8c7e;
+  --color-boundary-magenta: #d9512a;
 
   --font-sans: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
@@ -48,12 +53,13 @@
   body {
     @apply bg-bg text-text-primary font-sans antialiased m-0 p-0;
     background-image:
-      radial-gradient(900px 600px at 80% -10%, rgba(157, 140, 255, 0.06), transparent 60%),
-      radial-gradient(700px 500px at 10% 110%, rgba(200, 250, 60, 0.05), transparent 60%);
+      radial-gradient(900px 600px at 82% -8%, rgba(90, 71, 214, 0.07), transparent 60%),
+      radial-gradient(760px 520px at 8% 108%, rgba(15, 140, 126, 0.07), transparent 60%),
+      radial-gradient(600px 600px at 50% 50%, rgba(217, 81, 42, 0.025), transparent 70%);
     background-attachment: fixed;
   }
 
-  ::selection { background: rgba(200, 250, 60, 0.25); color: #fff; }
+  ::selection { background: rgba(90, 71, 214, 0.22); color: #1c1813; }
 }
 
 /* ---------------------------------------------------------------- layout */
@@ -91,7 +97,7 @@
 .card {
   position: relative;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.015), transparent 40%),
+    linear-gradient(180deg, rgba(255,255,255,0.5), transparent 45%),
     var(--color-surface);
   border: 1px solid var(--color-border-subtle);
   border-radius: 16px;
@@ -100,7 +106,7 @@
 }
 .card:hover {
   border-color: var(--color-border);
-  box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(200,250,60,0.04);
+  box-shadow: 0 18px 44px -22px rgba(74, 60, 36, 0.45), 0 0 0 1px rgba(90,71,214,0.05);
   transform: translateY(-3px);
 }
 
@@ -118,13 +124,13 @@
 .card-accent:hover::after { transform: scaleX(1); }
 
 .metric-card {
-  background: rgba(28, 25, 15, 0.55);
+  background: rgba(255, 253, 247, 0.6);
   border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
   padding: 12px 14px;
-  transition: border-color 0.3s ease, background 0.3s ease;
+  transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s ease;
 }
-.metric-card:hover { border-color: var(--color-border); background: rgba(28,25,15,0.85); }
+.metric-card:hover { border-color: var(--color-border); background: rgba(255,253,247,0.95); transform: translateY(-2px); }
 
 .divider {
   height: 1px;
@@ -144,13 +150,13 @@
   text-transform: uppercase;
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  background: rgba(20, 18, 9, 0.7);
+  background: rgba(255, 251, 243, 0.7);
   backdrop-filter: blur(6px);
 }
 .tag-dot {
   width: 6px; height: 6px; border-radius: 999px;
-  background: var(--color-lime);
-  box-shadow: 0 0 10px var(--color-lime);
+  background: var(--color-teal);
+  box-shadow: 0 0 10px var(--color-teal);
   animation: pulse-dot 2s ease-in-out infinite;
 }
 @keyframes pulse-dot {
@@ -167,14 +173,14 @@
   font-size: 13px;
   padding: 14px 28px;
   border-radius: 12px;
-  border: 1px solid var(--color-lime);
-  color: var(--color-bg);
-  background: var(--color-lime);
+  border: 1px solid var(--color-teal);
+  color: #faf6ec;
+  background: var(--color-teal);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.3s ease, background 0.2s ease;
-  box-shadow: 0 0 0 0 rgba(200,250,60,0.5);
+  box-shadow: 0 0 0 0 rgba(15,140,126,0.5);
 }
-.btn-race:hover { box-shadow: 0 0 28px -4px rgba(200,250,60,0.6); transform: translateY(-2px); }
+.btn-race:hover { box-shadow: 0 12px 28px -10px rgba(15,140,126,0.6); transform: translateY(-2px); }
 .btn-race:active { transform: translateY(0) scale(0.98); }
 .btn-race:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
 
@@ -195,7 +201,7 @@
 
 /* ---------------------------------------------------------------- gradient text */
 .grad-text {
-  background: linear-gradient(105deg, var(--color-lime) 0%, var(--color-periwinkle) 45%, var(--color-vermilion) 100%);
+  background: linear-gradient(105deg, var(--color-teal) 0%, var(--color-indigo) 45%, var(--color-terracotta) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -217,7 +223,7 @@
   border-radius: 12px;
   border: 1px solid var(--color-border-subtle);
   background:
-    repeating-linear-gradient(90deg, transparent, transparent 38px, rgba(255,255,255,0.025) 38px, rgba(255,255,255,0.025) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 38px, rgba(74,60,36,0.05) 38px, rgba(74,60,36,0.05) 40px),
     var(--color-surface);
   overflow: hidden;
 }
@@ -236,15 +242,15 @@
 }
 
 @keyframes flash-win {
-  0% { box-shadow: 0 0 0 0 rgba(200,250,60,0.0); }
-  30% { box-shadow: 0 0 30px 6px rgba(200,250,60,0.55); }
-  100% { box-shadow: 0 0 0 0 rgba(200,250,60,0.0); }
+  0% { box-shadow: 0 0 0 0 rgba(15,140,126,0.0); }
+  30% { box-shadow: 0 0 30px 6px rgba(15,140,126,0.5); }
+  100% { box-shadow: 0 0 0 0 rgba(15,140,126,0.0); }
 }
 .flash-win { animation: flash-win 0.6s ease-out; }
 @keyframes flash-lose {
-  0% { box-shadow: 0 0 0 0 rgba(255,91,58,0.0); }
-  30% { box-shadow: 0 0 30px 6px rgba(255,91,58,0.5); }
-  100% { box-shadow: 0 0 0 0 rgba(255,91,58,0.0); }
+  0% { box-shadow: 0 0 0 0 rgba(217,81,42,0.0); }
+  30% { box-shadow: 0 0 30px 6px rgba(217,81,42,0.5); }
+  100% { box-shadow: 0 0 0 0 rgba(217,81,42,0.0); }
 }
 .flash-lose { animation: flash-lose 0.6s ease-out; }
 
@@ -285,7 +291,7 @@
 .scanline::after {
   content: "";
   position: absolute; inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(200,250,60,0.06), transparent);
+  background: linear-gradient(90deg, transparent, rgba(90,71,214,0.07), transparent);
   animation: scan 3.5s linear infinite;
   pointer-events: none;
 }
@@ -297,7 +303,7 @@ input[type="range"].arena-range {
   width: 100%;
   height: 4px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-lime), var(--color-vermilion));
+  background: linear-gradient(90deg, var(--color-teal), var(--color-terracotta));
   outline: none;
 }
 input[type="range"].arena-range::-webkit-slider-thumb {
@@ -306,9 +312,9 @@ input[type="range"].arena-range::-webkit-slider-thumb {
   width: 18px; height: 18px;
   border-radius: 6px;
   background: var(--color-text-primary);
-  border: 2px solid var(--color-bg);
+  border: 2px solid var(--color-surface-raised);
   cursor: pointer;
-  box-shadow: 0 0 12px rgba(200,250,60,0.4);
+  box-shadow: 0 2px 10px rgba(15,140,126,0.4);
   transition: transform 0.15s ease;
 }
 input[type="range"].arena-range::-webkit-slider-thumb:hover { transform: scale(1.15); }
@@ -324,8 +330,8 @@ code {
   font-size: 0.85em;
   padding: 2px 6px;
   border-radius: 5px;
-  background: var(--color-surface-raised);
-  color: var(--color-lime);
+  background: var(--color-bg-deep);
+  color: var(--color-teal-dim);
 }
 
 .tabular-nums { font-variant-numeric: tabular-nums; }

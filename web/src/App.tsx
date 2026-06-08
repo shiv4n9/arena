@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import 'katex/dist/katex.min.css';
-import { BlockMath, InlineMath } from 'react-katex';
+import { Tex, TexBlock } from './Tex';
 import { WebGLCanvas } from './WebGLCanvas';
 import { RaceGame } from './RaceGame';
+import { ArenaLogo, ArenaMark } from './ArenaLogo';
+import CursorSparkles from './CursorSparkles';
 // @ts-ignore
 import initWasm from './arctic_wasm.js';
 // @ts-ignore
@@ -101,11 +102,10 @@ function Nav() {
     ['network', 'Network'],
   ];
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50" style={{ background: 'rgba(12,11,8,0.6)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+    <nav className="fixed top-0 left-0 right-0 z-50" style={{ background: 'rgba(244,238,225,0.72)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--color-border-subtle)' }}>
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-        <a href="#top" className="flex items-center gap-2.5 font-mono text-sm font-semibold tracking-widest text-text-primary">
-          <span className="tag-dot" />
-          ARENA
+        <a href="#top" className="text-text-primary hover:opacity-80 transition-opacity">
+          <ArenaLogo size={26} />
         </a>
         <div className="hidden md:flex items-center gap-6">
           {links.map(([id, label]) => (
@@ -192,6 +192,7 @@ export default function App() {
 
   return (
     <>
+      <CursorSparkles />
       <Nav />
       <div className="snap-container" id="top">
 
@@ -206,6 +207,7 @@ export default function App() {
               </div>
             </Reveal>
             <Reveal delay={1}>
+              <div className="flex justify-center mb-4"><ArenaMark size={64} className="float-slow" /></div>
               <h1 className="text-6xl md:text-[8.5rem] font-bold tracking-tighter leading-[0.9] mb-6">
                 <span className="grad-text">ARENA</span>
               </h1>
@@ -329,7 +331,7 @@ export default function App() {
                 <div className="card p-6">
                   <div className="text-xs font-mono uppercase tracking-wider mb-4" style={{ color: 'var(--color-periwinkle)' }}>Exact OU transition kernel</div>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`V_{t+\Delta t} \sim \mathcal{N}\!\left(\mu + (V_t - \mu)e^{-\theta \Delta t},\; \tfrac{\sigma_V^2}{2\theta}\bigl(1 - e^{-2\theta \Delta t}\bigr)\right)`} />
+                    <TexBlock name="ou_kernel" />
                   </div>
                   <p className="text-xs text-text-tertiary mt-3">Draws from the analytically exact conditional Gaussian — no SDE discretization.</p>
                 </div>
@@ -338,7 +340,7 @@ export default function App() {
                 <div className="card p-6">
                   <div className="text-xs font-mono uppercase tracking-wider mb-4" style={{ color: 'var(--color-lime)' }}>Race win probability</div>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`P(\text{win}) = \Phi\!\left(\frac{\mu_{\text{comp}} - \mu_{\text{self}}}{\sqrt{\sigma_{\text{self}}^2 + \sigma_{\text{comp}}^2}}\right)`} />
+                    <TexBlock name="p_win" />
                   </div>
                   <p className="text-xs text-text-tertiary mt-3">
                     <code>compute_p_win()</code>. Latencies are log-normal; the log-difference is Gaussian, so the race reduces to a normal CDF on the log-space means.
@@ -349,10 +351,10 @@ export default function App() {
                 <div className="card p-6">
                   <div className="text-xs font-mono uppercase tracking-wider mb-4" style={{ color: 'var(--color-signal-amber)' }}>Signal decay — Laplace transform</div>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`D(\theta) = \mathbb{E}\!\left[e^{-\theta L}\right] \;\ge\; e^{-\theta\,\mathbb{E}[L]}`} />
+                    <TexBlock name="decay" />
                   </div>
                   <p className="text-xs text-text-tertiary mt-3">
-                    The fraction of edge surviving a random delay <InlineMath math={String.raw`L`} /> is the Laplace transform of the log-normal latency (no closed form — Gaussian quadrature). By Jensen, <em>dispersion erodes capture</em>.
+                    The fraction of edge surviving a random delay <Tex name="L" /> is the Laplace transform of the log-normal latency (no closed form — Gaussian quadrature). By Jensen, <em>dispersion erodes capture</em>.
                   </p>
                 </div>
               </Reveal>
@@ -360,10 +362,10 @@ export default function App() {
                 <div className="card p-6">
                   <div className="text-xs font-mono uppercase tracking-wider mb-4" style={{ color: 'var(--color-vermilion)' }}>Sniping boundary (Nash indifference)</div>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`b^{*} = \mu + \frac{c}{P(\text{win})\cdot D(\theta)}`} />
+                    <TexBlock name="boundary" />
                   </div>
                   <p className="text-xs text-text-tertiary mt-3">
-                    <code>compute_equilibrium_boundary()</code>. Set expected sniping profit to zero: <InlineMath math={String.raw`P\cdot(b^{*}-\mu)\cdot D - c = 0`} />. A dominant strategy — independent of the rival's threshold.
+                    <code>compute_equilibrium_boundary()</code>. Set expected sniping profit to zero: <Tex name="indiff" />. A dominant strategy — independent of the rival's threshold.
                   </p>
                 </div>
               </Reveal>
@@ -372,10 +374,10 @@ export default function App() {
               <div className="card p-6 mt-6">
                 <div className="text-xs font-mono uppercase tracking-wider mb-4 text-text-tertiary">Payoff — loser-pays sniping</div>
                 <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                  <BlockMath math={String.raw`\Pi_{\text{win}} = V_{\text{exec}} - (\mu + \tfrac{s}{2}), \qquad \Pi_{\text{lose}} = -\tfrac{s}{2}`} />
+                  <TexBlock name="payoff" />
                 </div>
                 <p className="text-xs text-text-tertiary mt-3">
-                  The winner snipes the static maker quote anchored at <InlineMath math={String.raw`\mu \pm s/2`} />; <InlineMath math={String.raw`V_{\text{exec}}`} /> is the OU path linearly interpolated at the fractional arrival index. The loser crosses the spread and pays <InlineMath math={String.raw`s/2`} />.
+                  The winner snipes the static maker quote anchored at <Tex name="mu_pm" />; <Tex name="v_exec" /> is the OU path linearly interpolated at the fractional arrival index. The loser crosses the spread and pays <Tex name="half_spread" />.
                 </p>
               </div>
             </Reveal>
@@ -383,70 +385,93 @@ export default function App() {
         </section>
 
         {/* ============================== LIVE ARENA ============================== */}
-        <section id="live" className="snap-section" style={{ minHeight: '100vh' }}>
-          <div className="w-full flex flex-col lg:flex-row" style={{ minHeight: '100vh', paddingTop: 56 }}>
-            {/* telemetry panel */}
-            <div className="lg:w-80 flex-shrink-0 flex flex-col p-6 overflow-y-auto" style={{ background: 'var(--color-surface)', borderRight: '1px solid var(--color-border-subtle)' }}>
-              <div className="flex items-center gap-2 mb-6">
-                <span className="tag-dot" />
-                <span className="text-xs font-mono uppercase tracking-widest text-text-tertiary">Live Telemetry</span>
-              </div>
+        <section id="live" className="snap-section flex-col px-6 py-24">
+          <div className="max-w-6xl w-full">
+            <Reveal>
+              <SectionLabel n="04" title="The arena, live" />
+              <p className="text-sm md:text-base text-text-secondary -mt-8 mb-4 max-w-2xl leading-relaxed">
+                This is the real C++ engine running in your browser at 60&nbsp;fps. The chart below is the
+                shared <strong style={{ color: 'var(--color-indigo)' }}>price signal</strong> both agents watch.
+                When it crosses an agent's <strong>snipe boundary</strong>, that agent fires at the stale quote —
+                and the faster network wins the fill.
+              </p>
+            </Reveal>
 
-              <div className="mb-5">
-                <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-mono mb-1">Your network jitter (CV)</div>
-                <div className="text-3xl font-mono tabular-nums" style={{ color: liveSigma > 0.4 ? 'var(--color-vermilion)' : 'var(--color-text-primary)' }}>
-                  {liveSigma.toFixed(4)}
+            {/* legend + how-to-read strip */}
+            <Reveal delay={1}>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6 text-[11px] font-mono">
+                <span className="flex items-center gap-2"><span className="w-4 h-[3px] rounded inline-block" style={{ background: 'var(--color-indigo)' }} /> V(t) — live price signal (OU process)</span>
+                <span className="flex items-center gap-2"><span className="w-4 h-[3px] rounded inline-block" style={{ background: 'var(--color-teal)' }} /> your snipe boundary b*</span>
+                <span className="flex items-center gap-2"><span className="w-4 h-[3px] rounded inline-block" style={{ background: 'var(--color-terracotta)' }} /> rival snipe boundary b*</span>
+              </div>
+            </Reveal>
+
+            <Reveal delay={2}>
+              <div className="card overflow-hidden grid lg:grid-cols-[300px_1fr]">
+                {/* telemetry panel */}
+                <div className="flex flex-col p-6 gap-5" style={{ background: 'var(--color-surface-raised)', borderRight: '1px solid var(--color-border-subtle)' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="tag-dot" />
+                    <span className="text-xs font-mono uppercase tracking-widest text-text-tertiary">Live Telemetry</span>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-mono mb-1">Your network jitter (CV)</div>
+                    <div className="text-3xl font-mono tabular-nums" style={{ color: liveSigma > 0.4 ? 'var(--color-terracotta)' : 'var(--color-teal)' }}>
+                      {liveSigma.toFixed(4)}
+                    </div>
+                    <div className="text-[10px] text-text-tertiary mt-1 leading-snug">
+                      Lower = steadier latency = you win more races. Rival is fixed at <span className="font-mono">0.2000</span>.
+                    </div>
+                  </div>
+
+                  <div className="divider" />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Metric label="b*_you" value={metrics.boundaryA.toFixed(4)} color="var(--color-teal)" />
+                    <Metric label="b*_rival" value={metrics.boundaryB.toFixed(4)} color="var(--color-terracotta)" />
+                    <Metric label="P(win)" value={`${(metrics.pWin * 100).toFixed(1)}%`} color={metrics.pWin < 0.5 ? 'var(--color-terracotta)' : 'var(--color-teal)'} />
+                    <Metric label="Decay D(θ)" value={metrics.signalDecay.toFixed(4)} color="var(--color-gold)" />
+                    <Metric label="V(t)" value={metrics.currentV.toFixed(4)} color="var(--color-indigo)" />
+                    <Metric label="Var emp/th" value={`${metrics.signalVar.toFixed(2)}/${metrics.theoreticalVar.toFixed(2)}`} />
+                  </div>
+                  <div className="text-[10px] text-text-tertiary leading-snug -mt-1">
+                    <strong>b*</strong> = how far the signal must drift before sniping is worth it ·
+                    <strong> P(win)</strong> = your live edge in the latency race ·
+                    <strong> Var emp/th</strong> = the engine's signal matching its closed-form variance.
+                  </div>
+
+                  <button
+                    onMouseDown={stressDown} onMouseUp={stressUp} onMouseLeave={stressUp}
+                    onTouchStart={stressDown} onTouchEnd={stressUp}
+                    className="mt-2 py-3 rounded-xl font-mono text-xs uppercase tracking-wider transition-all"
+                    style={isStressed
+                      ? { background: 'rgba(217,81,42,0.14)', border: '1px solid var(--color-terracotta)', color: 'var(--color-terracotta)' }
+                      : { background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+                  >
+                    {isStressed ? 'Inducing Latency…' : 'Hold to Stress Network'}
+                  </button>
+                  <div className="text-[10px] text-text-tertiary leading-snug -mt-2">
+                    Hold to spike <em>your</em> jitter toward congestion (CV→1.1). Watch your boundary and
+                    P(win) move against you in real time, then recover when you release.
+                  </div>
+                </div>
+
+                {/* canvas */}
+                <div className="relative" style={{ minHeight: '52vh' }}>
+                  {wasmEngine ? (
+                    <WebGLCanvas wasmEngine={wasmEngine} wasmMemory={wasmMemory} numPoints={1000} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center" style={{ minHeight: '52vh' }}>
+                      <div className="text-text-tertiary font-mono text-sm animate-pulse">Loading WASM engine…</div>
+                    </div>
+                  )}
+                  <div className="absolute top-4 left-5 font-mono text-[10px] uppercase tracking-[0.25em] text-text-tertiary pointer-events-none">
+                    OU signal · equilibrium boundaries · 60 fps
+                  </div>
                 </div>
               </div>
-              <div className="mb-6">
-                <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-mono mb-1">Rival jitter (fixed)</div>
-                <span className="text-xl font-mono text-text-secondary">0.2000</span>
-              </div>
-
-              <div className="divider mb-5" />
-
-              <div className="grid grid-cols-2 gap-3 mb-5">
-                <Metric label="b*_you" value={metrics.boundaryA.toFixed(4)} color="var(--color-lime)" />
-                <Metric label="b*_rival" value={metrics.boundaryB.toFixed(4)} color="var(--color-vermilion)" />
-                <Metric label="P(win)" value={`${(metrics.pWin * 100).toFixed(1)}%`} color={metrics.pWin < 0.5 ? 'var(--color-vermilion)' : 'var(--color-lime)'} />
-                <Metric label="Decay D(θ)" value={metrics.signalDecay.toFixed(4)} color="var(--color-signal-amber)" />
-                <Metric label="V(t)" value={metrics.currentV.toFixed(4)} />
-                <Metric label="Var emp/th" value={`${metrics.signalVar.toFixed(2)}/${metrics.theoreticalVar.toFixed(2)}`} />
-              </div>
-
-              <div className="divider mb-5" />
-
-              <div className="flex gap-4 text-[10px] font-mono mb-5">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 rounded inline-block" style={{ background: 'var(--color-lime)' }} /> b*_you</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 rounded inline-block" style={{ background: 'var(--color-vermilion)' }} /> b*_rival</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 rounded inline-block" style={{ background: 'var(--color-text-primary)' }} /> V(t)</span>
-              </div>
-
-              <button
-                onMouseDown={stressDown} onMouseUp={stressUp} onMouseLeave={stressUp}
-                onTouchStart={stressDown} onTouchEnd={stressUp}
-                className="mt-auto py-3 rounded-xl font-mono text-xs uppercase tracking-wider transition-all"
-                style={isStressed
-                  ? { background: 'rgba(255,91,58,0.15)', border: '1px solid var(--color-vermilion)', color: 'var(--color-vermilion)' }
-                  : { background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-tertiary)' }}
-              >
-                {isStressed ? 'Inducing Latency…' : 'Hold to Stress Network'}
-              </button>
-            </div>
-
-            {/* canvas */}
-            <div className="flex-1 relative" style={{ minHeight: '60vh' }}>
-              {wasmEngine ? (
-                <WebGLCanvas wasmEngine={wasmEngine} wasmMemory={wasmMemory} numPoints={1000} />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="text-text-tertiary font-mono text-sm animate-pulse">Loading WASM engine…</div>
-                </div>
-              )}
-              <div className="absolute top-5 left-6 font-mono text-[10px] uppercase tracking-[0.25em] text-text-tertiary pointer-events-none">
-                Signal · Boundaries · Live
-              </div>
-            </div>
+            </Reveal>
           </div>
         </section>
 
@@ -454,7 +479,7 @@ export default function App() {
         <section id="simulator" className="snap-section flex-col px-6 py-24">
           <div className="max-w-5xl w-full">
             <Reveal>
-              <SectionLabel n="04" title="Race the engine" />
+              <SectionLabel n="05" title="Race the engine" />
               <p className="text-sm text-text-secondary -mt-8 mb-12 max-w-xl">
                 Tune your network, then race your rival to twelve snipes. Win probability is computed live by the real equilibrium solver — every snipe is a Bernoulli draw on the latency race.
               </p>
@@ -470,16 +495,16 @@ export default function App() {
         {/* ============================== NETWORK ANALYSIS ============================== */}
         <section id="network" className="snap-section flex-col px-6 py-24">
           <div className="max-w-5xl w-full">
-            <Reveal><SectionLabel n="05" title="Network analysis" /></Reveal>
+            <Reveal><SectionLabel n="06" title="Network analysis" /></Reveal>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Reveal delay={1}>
                 <div className="card p-6 h-full">
                   <div className="font-mono text-xs uppercase tracking-wider mb-4" style={{ color: 'var(--color-periwinkle)' }}>Latency as a log-normal</div>
                   <p className="text-sm text-text-secondary leading-relaxed mb-4">
-                    Round-trip delays are modelled as <InlineMath math={String.raw`\ln L \sim \mathcal{N}(m, \sigma^2)`} />, parameterised by the real-world latency mean and standard deviation. The coefficient of variation — not the mean — drives the race, because both agents share the same median path.
+                    Round-trip delays are modelled as <Tex name="lnL" />, parameterised by the real-world latency mean and standard deviation. The coefficient of variation — not the mean — drives the race, because both agents share the same median path.
                   </p>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`\sigma^2 = \ln\!\Bigl(1 + (s/m)^2\Bigr),\quad \mu_{\ln} = \ln m - \tfrac{\sigma^2}{2}`} />
+                    <TexBlock name="network_sigma" />
                   </div>
                 </div>
               </Reveal>
@@ -490,7 +515,7 @@ export default function App() {
                     A two-sided Kolmogorov–Smirnov statistic with estimated parameters tests whether observed jitter is log-normal. Because mean and variance are fit from the sample, the standard 1.36/√n band is invalid — ARENA uses the Lilliefors critical value.
                   </p>
                   <div className="rounded-lg p-4 overflow-x-auto" style={{ background: 'var(--color-bg-deep)' }}>
-                    <BlockMath math={String.raw`D_n = \max_i \left|\,\hat F(x_i) - \tfrac{i}{n}\,\right|,\quad D^{*}_{0.05} \approx \frac{0.895}{\sqrt{n}}`} />
+                    <TexBlock name="lilliefors" />
                   </div>
                 </div>
               </Reveal>
@@ -509,7 +534,7 @@ export default function App() {
         {/* ============================== ARCHITECTURE ============================== */}
         <section className="snap-section flex-col px-6 py-24">
           <div className="max-w-5xl w-full">
-            <Reveal><SectionLabel n="06" title="Under the hood" /></Reveal>
+            <Reveal><SectionLabel n="07" title="Under the hood" /></Reveal>
             <div className="space-y-4">
               {[
                 ['order_book.hpp', '315 lines', 'var(--color-lime)',
@@ -537,6 +562,7 @@ export default function App() {
 
         {/* ============================== FOOTER ============================== */}
         <footer className="py-14 text-center" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+          <div className="flex justify-center mb-3"><ArenaMark size={34} /></div>
           <div className="font-mono text-sm font-semibold tracking-widest grad-text mb-2">ARENA</div>
           <p className="text-xs font-mono text-text-tertiary">
             Agentic Racing Engine with Network Analysis · C++17 / Emscripten / WebGL

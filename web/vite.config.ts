@@ -7,16 +7,4 @@ export default defineConfig({
   // The deploy workflow sets VITE_BASE=/ARCTIC/; locally it stays at root.
   base: process.env.VITE_BASE || '/',
   plugins: [react()],
-  server: {
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-    }
-  },
-  preview: {
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-    }
-  }
 })
