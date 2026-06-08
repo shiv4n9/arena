@@ -37,7 +37,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_BASE: /ARCTIC/
+          VITE_BASE: /arena/
         run: npm run build
 
       - name: Setup Pages
