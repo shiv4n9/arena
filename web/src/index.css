@@ -1,130 +1,334 @@
 @import "tailwindcss";
 
+/* =====================================================================
+   ARENA — Agentic Racing Engine with Network Analysis
+   Palette: warm near-black canvas + electric lime / vermilion / periwinkle.
+   Deliberately NOT the usual cyan-on-navy fintech look.
+   ===================================================================== */
 @theme {
-  --color-bg: #06080c;
-  --color-surface: #0c1017;
-  --color-surface-raised: #111620;
-  --color-border: #1c2232;
-  --color-border-subtle: #141a26;
-  --color-text-primary: #e4e8ef;
-  --color-text-secondary: #7d8699;
-  --color-text-tertiary: #4a5268;
-  --color-accent: #3b82f6;
-  --color-accent-dim: #1d4ed8;
-  --color-signal-green: #22c55e;
-  --color-signal-red: #ef4444;
-  --color-signal-amber: #f59e0b;
-  --color-boundary-cyan: #06b6d4;
-  --color-boundary-magenta: #a855f7;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --color-bg: #0c0b08;
+  --color-bg-deep: #070605;
+  --color-surface: #141209;
+  --color-surface-raised: #1c190f;
+  --color-border: #2c2716;
+  --color-border-subtle: #1d1a0e;
+
+  --color-text-primary: #f4efe1;
+  --color-text-secondary: #a8a08a;
+  --color-text-tertiary: #6c6552;
+
+  /* signature trio */
+  --color-lime: #c8fa3c;        /* "you" / agent A */
+  --color-lime-dim: #8aa82a;
+  --color-vermilion: #ff5b3a;   /* rival / agent B */
+  --color-vermilion-dim: #b23d27;
+  --color-periwinkle: #9d8cff;  /* signal / highlights */
+  --color-periwinkle-dim: #6a5ec2;
+
+  /* status */
+  --color-signal-green: #c8fa3c;
+  --color-signal-red: #ff5b3a;
+  --color-signal-amber: #ffb23c;
+
+  /* legacy aliases used by older markup */
+  --color-accent: #c8fa3c;
+  --color-accent-dim: #8aa82a;
+  --color-boundary-cyan: #c8fa3c;
+  --color-boundary-magenta: #ff5b3a;
+
+  --font-sans: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
 @layer base {
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 
-  html {
-    scroll-behavior: smooth;
-  }
+  html { scroll-behavior: smooth; }
 
   body {
     @apply bg-bg text-text-primary font-sans antialiased m-0 p-0;
+    background-image:
+      radial-gradient(900px 600px at 80% -10%, rgba(157, 140, 255, 0.06), transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, rgba(200, 250, 60, 0.05), transparent 60%);
+    background-attachment: fixed;
   }
+
+  ::selection { background: rgba(200, 250, 60, 0.25); color: #fff; }
 }
 
-/* Scroll snap container */
+/* ---------------------------------------------------------------- layout */
 .snap-container {
   height: 100vh;
   overflow-y: auto;
-  scroll-snap-type: y mandatory;
+  scroll-snap-type: y proximity;
   scroll-behavior: smooth;
 }
 
 .snap-section {
   min-height: 100vh;
   scroll-snap-align: start;
-  scroll-snap-stop: always;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* Intersection observer reveal animations */
+/* ---------------------------------------------------------------- reveal */
 .reveal {
   opacity: 0;
-  transform: translateY(32px);
-  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(34px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: 0.08s; }
+.reveal-delay-2 { transition-delay: 0.16s; }
+.reveal-delay-3 { transition-delay: 0.24s; }
+.reveal-delay-4 { transition-delay: 0.32s; }
+.reveal-delay-5 { transition-delay: 0.40s; }
 
-.reveal.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.reveal-delay-1 { transition-delay: 0.1s; }
-.reveal-delay-2 { transition-delay: 0.2s; }
-.reveal-delay-3 { transition-delay: 0.3s; }
-.reveal-delay-4 { transition-delay: 0.4s; }
-
-/* Card styles */
+/* ---------------------------------------------------------------- cards */
 .card {
-  background: var(--color-surface);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.015), transparent 40%),
+    var(--color-surface);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  border-radius: 16px;
+  transition: border-color 0.35s ease, box-shadow 0.35s ease, transform 0.35s cubic-bezier(0.16,1,0.3,1);
+  overflow: hidden;
 }
-
 .card:hover {
   border-color: var(--color-border);
-  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(200,250,60,0.04);
+  transform: translateY(-3px);
 }
 
-/* Metric card for telemetry */
+/* accented top hairline on hover */
+.card-accent::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-lime), var(--color-periwinkle), var(--color-vermilion));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.5s cubic-bezier(0.16,1,0.3,1);
+}
+.card-accent:hover::after { transform: scaleX(1); }
+
 .metric-card {
-  background: rgba(12, 16, 23, 0.6);
+  background: rgba(28, 25, 15, 0.55);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
-  padding: 14px 16px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  transition: border-color 0.3s ease, background 0.3s ease;
 }
+.metric-card:hover { border-color: var(--color-border); background: rgba(28,25,15,0.85); }
 
-/* Subtle horizontal rule */
 .divider {
   height: 1px;
   background: linear-gradient(to right, transparent, var(--color-border), transparent);
 }
 
-/* Tag / badge */
+/* ---------------------------------------------------------------- tag */
 .tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
+  gap: 8px;
+  padding: 5px 14px;
   border-radius: 999px;
   font-size: 11px;
   font-family: var(--font-mono);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  background: var(--color-surface);
+  background: rgba(20, 18, 9, 0.7);
+  backdrop-filter: blur(6px);
+}
+.tag-dot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--color-lime);
+  box-shadow: 0 0 10px var(--color-lime);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+/* ---------------------------------------------------------------- buttons */
+.btn-race {
+  position: relative;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 13px;
+  padding: 14px 28px;
+  border-radius: 12px;
+  border: 1px solid var(--color-lime);
+  color: var(--color-bg);
+  background: var(--color-lime);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.3s ease, background 0.2s ease;
+  box-shadow: 0 0 0 0 rgba(200,250,60,0.5);
+}
+.btn-race:hover { box-shadow: 0 0 28px -4px rgba(200,250,60,0.6); transform: translateY(-2px); }
+.btn-race:active { transform: translateY(0) scale(0.98); }
+.btn-race:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
+
+.btn-ghost {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  padding: 13px 22px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-ghost:hover { border-color: var(--color-text-tertiary); color: var(--color-text-primary); }
+
+/* ---------------------------------------------------------------- gradient text */
+.grad-text {
+  background: linear-gradient(105deg, var(--color-lime) 0%, var(--color-periwinkle) 45%, var(--color-vermilion) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* huge outline numeral / glyph */
+.ghost-num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--color-border);
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------- race lanes (game) */
+.lane {
+  position: relative;
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-subtle);
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 38px, rgba(255,255,255,0.025) 38px, rgba(255,255,255,0.025) 40px),
+    var(--color-surface);
+  overflow: hidden;
+}
+.lane-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  transition: width 0.25s cubic-bezier(0.16,1,0.3,1);
+}
+.lane-puck {
+  position: absolute;
+  top: 50%;
+  width: 26px; height: 26px;
+  border-radius: 8px;
+  transform: translate(-50%, -50%);
+  transition: left 0.25s cubic-bezier(0.16,1,0.3,1);
+}
+
+@keyframes flash-win {
+  0% { box-shadow: 0 0 0 0 rgba(200,250,60,0.0); }
+  30% { box-shadow: 0 0 30px 6px rgba(200,250,60,0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(200,250,60,0.0); }
+}
+.flash-win { animation: flash-win 0.6s ease-out; }
+@keyframes flash-lose {
+  0% { box-shadow: 0 0 0 0 rgba(255,91,58,0.0); }
+  30% { box-shadow: 0 0 30px 6px rgba(255,91,58,0.5); }
+  100% { box-shadow: 0 0 0 0 rgba(255,91,58,0.0); }
+}
+.flash-lose { animation: flash-lose 0.6s ease-out; }
+
+/* floating point pop */
+@keyframes pop-up {
+  0% { opacity: 0; transform: translateY(8px) scale(0.9); }
+  20% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-26px) scale(1); }
+}
+.pop-up { animation: pop-up 1s ease-out forwards; }
+
+/* slow drift for hero particles */
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+.float-slow { animation: float-slow 7s ease-in-out infinite; }
+
+/* hero "packet" racers crossing latency lanes */
+@keyframes race-x {
+  0%   { transform: translateX(-8vw); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translateX(108vw); opacity: 0; }
+}
+.racer {
+  position: absolute;
+  height: 2px;
+  width: 64px;
+  border-radius: 999px;
+  animation: race-x linear infinite;
+}
+
+@keyframes scan {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.scanline::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(200,250,60,0.06), transparent);
+  animation: scan 3.5s linear infinite;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- range input */
+input[type="range"].arena-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-lime), var(--color-vermilion));
+  outline: none;
+}
+input[type="range"].arena-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 6px;
+  background: var(--color-text-primary);
+  border: 2px solid var(--color-bg);
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(200,250,60,0.4);
+  transition: transform 0.15s ease;
+}
+input[type="range"].arena-range::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+/* ---------------------------------------------------------------- misc */
+::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
 
-/* Code inline */
 code {
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--color-surface-raised);
-  color: var(--color-accent);
+  color: var(--color-lime);
 }
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* katex sizing in cards */
+.katex { font-size: 1.02em; }

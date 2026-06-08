@@ -81,9 +81,9 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         const gridLine = new Float32Array([-1.0, yNdc, 1.0, yNdc]);
         gl.bufferData(gl.ARRAY_BUFFER, gridLine, gl.STATIC_DRAW);
         if (val === 0) {
-          gl.uniform4fv(colorLoc, [0.18, 0.20, 0.26, 1.0]);
+          gl.uniform4fv(colorLoc, [0.22, 0.20, 0.12, 1.0]);
         } else {
-          gl.uniform4fv(colorLoc, [0.09, 0.10, 0.13, 1.0]);
+          gl.uniform4fv(colorLoc, [0.11, 0.10, 0.06, 1.0]);
         }
         gl.drawArrays(gl.LINES, 0, 2);
       }
@@ -91,7 +91,7 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         const xNdc = (i / numPoints) * 2.0 - 1.0;
         const gridLine = new Float32Array([xNdc, -1.0, xNdc, 1.0]);
         gl.bufferData(gl.ARRAY_BUFFER, gridLine, gl.STATIC_DRAW);
-        gl.uniform4fv(colorLoc, [0.07, 0.08, 0.10, 1.0]);
+        gl.uniform4fv(colorLoc, [0.09, 0.08, 0.05, 1.0]);
         gl.drawArrays(gl.LINES, 0, 2);
       }
     };
@@ -110,8 +110,8 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
       
       const heapF32 = new Float32Array(wasmMemory.buffer);
 
-      // Match the dark background: rgb(6, 8, 12) = #06080c
-      gl.clearColor(0.024, 0.031, 0.047, 1.0);
+      // Match the warm near-black ARENA canvas: #0c0b08
+      gl.clearColor(0.047, 0.043, 0.031, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       
       gl.enable(gl.BLEND);
@@ -130,12 +130,12 @@ export const WebGLCanvas: React.FC<WebGLCanvasProps> = ({ wasmEngine, wasmMemory
         gl.drawArrays(gl.LINE_STRIP, 0, numPoints);
       };
 
-      // Competitor boundary: muted purple
-      drawLineStrip(bBPtr, [0.66, 0.33, 0.97, 0.5]);
-      // Our adaptive boundary: cyan
-      drawLineStrip(bAPtr, [0.02, 0.71, 0.83, 0.7]);
-      // OU signal: clean white with a hint of blue
-      drawLineStrip(ouPtr, [0.82, 0.85, 0.92, 0.9]);
+      // Rival boundary: vermilion (#ff5b3a)
+      drawLineStrip(bBPtr, [1.0, 0.357, 0.227, 0.55]);
+      // Our boundary: electric lime (#c8fa3c)
+      drawLineStrip(bAPtr, [0.784, 0.980, 0.235, 0.8]);
+      // OU signal: warm bone (#f4efe1)
+      drawLineStrip(ouPtr, [0.957, 0.937, 0.882, 0.92]);
 
       animationId = requestAnimationFrame(renderLoop);
     };
