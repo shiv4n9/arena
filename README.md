@@ -74,44 +74,86 @@ $$ V_{t+\Delta t} \sim \mathcal{N}\left(\mu + (V_t - \mu)e^{-\theta \Delta t},\;
 This eliminates discretization bias entirely. The stationary distribution is $V_\infty \sim \mathcal{N}(\mu, \sigma_V^2 / 2\theta)$. The simulator validates the exact kernel by checking that the empirical lag-1 autocorrelation matches the theoretical value $\rho_1 = e^{-\theta \Delta t}$.
 
 ### 2. The Execution Game
-If two agents observe $V_t > c$ (where $c$ is execution cost), both may trigger an action. The winner is determined by their latency distribution. We model latency $\delta \sim \text{Log-Normal}(\mu_\delta, \sigma_\delta^2)$.
+The market maker posts a static quote anchored at the unconditional mean $\mu$ (the rational quote for a mean-reverting fundamental), so the offer sits at $\mu + c$ where $c$ is the half-spread. When the signal $V_t$ deviates far enough, an agent **snipes** that stale quote. Multiple agents may trigger at once; the winner is the one whose order arrives first. We model latency $L \sim \text{Log-Normal}$ and parameterise it by the quantities we can actually **measure**: the real-world latency **mean** $m_i$ and **standard deviation** $s_i$ per agent. The underlying-normal parameters are recovered analytically:
+$$ \sigma_i^2 = \ln\!\left(1 + \frac{s_i^2}{m_i^2}\right), \qquad \mu_i = \ln m_i - \tfrac{1}{2}\sigma_i^2, \qquad \ln L_i \sim \mathcal{N}(\mu_i,\ \sigma_i^2). $$
+This is the single convention used everywhere in the code — and it is exactly what `std::lognormal_distribution(μ_i, σ_i)` draws, so the analytic math and the Monte-Carlo sampler agree by construction. The pair $(m_i, s_i)$ is per agent; nothing is assumed shared.
+
+**Information structure (send-side latency only).** Each agent observes $V_t$ in **real time**; the drawn latency $L$ delays only the *arrival* of its order. This is the Budish–Cramton–Shim assumption and avoids double-counting the delay (observe-late *and* execute-late). The winner lifts the stale $\mu$-quote and books $V_{t+L} - (\mu + c)$; the loser arrives after the maker has repriced and books exactly $-c$ (**loser-pays**: speed is a cost even when you lose).
 
 ### 3. Signal Decay Under Latency
-When an agent acts, the signal mean-reverts during the latency delay:
-$$ \mathbb{E}[V_{t+\delta} \mid V_t = b] = \mu + (b - \mu) \cdot e^{-\theta \cdot \mathbb{E}[\delta]} $$
-where $\mathbb{E}[\delta] = e^{\mu_\delta + \sigma^2/2}$ for the Log-Normal.
+When an agent acts at $V_t = b$, the OU signal mean-reverts during the **random** delay $L$. Averaging over $L$, the surviving edge is governed by the **Laplace transform** of the latency, not by $e^{-\theta\,\mathbb{E}[L]}$:
+$$ \mathbb{E}\big[V_{t+L} \mid V_t = b\big] = \mu + (b - \mu) \cdot D(\theta), \qquad D(\theta) \equiv \mathbb{E}\big[e^{-\theta L}\big]. $$
+Since $e^{-\theta x}$ is convex, **Jensen's inequality** gives $D(\theta) \ge e^{-\theta m_i}$, with strict inequality whenever $s_i > 0$ — so latency **variance** (not just the mean) raises the surviving signal. The log-normal Laplace transform has no closed form, so `expected_signal_decay()` evaluates it by Gaussian quadrature (no modelling approximation, only ~1e-12 numerical error).
 
 ### 4. Latency Race Win Probability
-When both agents share the same $\mu_\delta$, the probability of agent A winning the latency race is:
-$$ P(\delta_A < \delta_B) = \Phi\left(\frac{\sigma_B^2 - \sigma_A^2}{2\sqrt{\sigma_A^2 + \sigma_B^2}}\right) $$
-This follows from the fact that $\log(\delta_A / \delta_B) \sim \mathcal{N}(0, \sigma_A^2 + \sigma_B^2)$.
+The probability that agent A wins the latency race follows directly from log-normality, with **no** equal-means assumption. Let $D = \ln L_A - \ln L_B \sim \mathcal{N}(\mu_A - \mu_B,\ \sigma_A^2 + \sigma_B^2)$, and agent A wins iff $D < 0$:
+$$ P(L_A < L_B) = \Phi\!\left(\frac{\mu_B - \mu_A}{\sqrt{\sigma_A^2 + \sigma_B^2}}\right), \quad \text{where } \mu_i = \ln m_i - \tfrac12\ln\!\Big(1+\tfrac{s_i^2}{m_i^2}\Big). $$
+The race is decided by $g_i \equiv e^{\mu_i} = m_i^2/\sqrt{m_i^2 + s_i^2}$ (the log-normal **median**). A key — and initially counter-intuitive — consequence: at **equal mean** $m_A = m_B$, the agent with the *larger* jitter $s_i$ has the *smaller* $g_i$ and therefore wins **more** often. Rare latency spikes inflate the mean, so the typical (median) packet of the high-variance agent is actually faster. A durable win-rate edge requires a genuine **mean** advantage $m_A < m_B$, not merely tighter jitter.
 
 ### 5. Equilibrium Boundary Derivation
-The optimal action boundary $b_A^*$ satisfies the **indifference condition**: expected competitive payoff equals zero at the boundary.
-$$ P(\text{win}) \cdot \left[\mu + (b_A^* - \mu) \cdot e^{-\theta \cdot \mathbb{E}[\delta_A]} - c\right] = 0 $$
+The optimal action boundary $b_A^*$ satisfies the **indifference condition**: the expected sniping payoff (winner captures the decayed edge, loser pays $-c$) equals zero at the boundary.
+$$ P(\text{win}) \cdot (b_A^* - \mu) \cdot D(\theta) - c = 0 $$
 
 Solving:
-$$ b_A^* = \mu + \frac{c - \mu}{P(\text{win}) \cdot e^{-\theta \cdot \mathbb{E}[\delta_A]}} $$
+$$ b_A^* = \mu + \frac{c}{P(\text{win}) \cdot D(\theta)} $$
+
+The numerator is the cost $c$ **alone** (the earlier $c-\mu$ form silently assumed $\mu = 0$). The cost $c$ is **unified** with the LOB half-spread, so the analytic boundary is the exact zero-EV threshold of the simulated payoff. Latency **std** enters $b_A^*$ **twice** — through $P(\text{win})$ *and* through the Laplace-transform decay $D(\theta)$.
 
 ### 6. Dominant Strategy Equilibrium (Proof)
 
 **Theorem.** The strategy profile $(b_A^*, b_B^*)$ constitutes a **dominant strategy equilibrium**.
 
-**Proof.** Observe that $b_A^*$ is a function of $(\sigma_A, \sigma_B, \theta, \mu_\delta, \mu, c)$ — all exogenous parameters of the game. Crucially, $b_A^*$ does **not** depend on $b_B$ (the opponent's chosen boundary). Therefore:
+**Proof.** Observe that $b_A^*$ is a function of $(m_A, s_A, m_B, s_B, \theta, \mu, c)$ — all exogenous parameters of the game. Crucially, $b_A^*$ does **not** depend on $b_B$ (the opponent's chosen boundary). Therefore:
 
 1. $b_A^*$ is agent A's best response **regardless** of what boundary agent B selects. By definition, this makes $b_A^*$ a **dominant strategy** for agent A.
 2. By the symmetric argument, $b_B^*$ is a dominant strategy for agent B.
 3. A strategy profile where every player plays a dominant strategy is a **dominant strategy equilibrium**, which is the strongest solution concept in non-cooperative game theory — it implies Nash equilibrium, and is also robust to trembling-hand perturbations.
 
-**Numerical verification.** The function `verify_equilibrium_convergence()` runs iterative best-response from arbitrary initial guesses $(b_A = 10, b_B = 10)$ and confirms convergence in **exactly one iteration**, which is the computational signature of the dominant strategy property. If the model had strategic coupling (e.g., market impact making $P(\text{competition})$ depend on $b_B$), convergence would require multiple iterations, indicating a non-trivial fixed-point problem.
+**Numerical verification.** The function `verify_equilibrium_convergence()` checks the **indifference identity** that defines each boundary, $\;P(\text{win})\cdot(b^* - \mu)\cdot D(\theta) - c = 0\;$ (to $\sim10^{-9}$). This is a substantive algebraic check on the solved boundary — it would fail if the boundary formula, the decay $D(\theta)$, or $P(\text{win})$ were mutually inconsistent — rather than a tautological best-response loop that converges trivially because $b^*$ ignores the opponent. The dominant-strategy property is then reported as a corollary: $b^*$ is independent of $b_B$ by construction.
 
 **Model limitation.** This dominance arises because agents compete purely on execution speed — the probability of competition is not conditioned on the opponent's boundary. In a richer model where agents can infer the competitor's strategy (e.g., through market impact or information leakage), the best-response *would* depend on $b_B$, requiring Banach contraction or Kakutani fixed-point arguments to establish equilibrium existence.
 
-The `LiveLatency` module actively fits empirical ping jitter to $\sigma_A$ using Welford's Online Algorithm in an independent thread, pushing updates to the execution thread lock-free via cache-line-aligned atomics with `release`/`acquire` memory ordering.
+The `LiveLatency` module actively fits the empirical ping mean $m_A$ and jitter $s_A$ using Welford's Online Algorithm in an independent thread, pushing updates to the execution thread lock-free via cache-line-aligned atomics with `release`/`acquire` memory ordering.
+
+## Future Scope: A Second, More Complete Model (Budish–Cramton–Shim)
+
+The current engine models one half of the high-frequency latency arms race: the **liquidity taker / sniper**. It asks "given a mispricing signal and a latency distribution, when should I fire, and how often do I win the race?" This is deliberately the side with a clean, provable answer — the boundary $b_A^*$ is a *dominant strategy* with a one-line closed form.
+
+The natural next model is the **other half of the same phenomenon**: the **market maker's adverse-selection problem**, formalised by Budish, Cramton & Shim (2015, *"The High-Frequency Trading Arms Race: Frequent Batch Auctions as a Market Design Response,"* Quarterly Journal of Economics). This is not a refinement of the current model — it is a **strictly more competent, second model** that should live alongside it, sharing only the OU signal generator and the latency primitives.
+
+### What the second model adds
+
+A **Glosten–Milgrom-style Bayesian market maker** who posts a bid–ask spread and knows that whenever the value $V_t$ jumps, snipers will try to pick off his now-stale quote *before* he can cancel it. The MM cannot win every cancellation race, so he prices the expected sniping loss into his spread. The headline objects become:
+
+1. **Stale-quote sniping loss.** When $V_t$ moves by $\Delta$, the MM's resting quote is mispriced. A sniper who wins the race against the MM's cancel captures (a fraction of) $\Delta$. The MM's expected loss per repricing event is
+   $$ \mathcal{L}_{\text{snipe}} \;=\; P(\text{sniper beats cancel}) \cdot \mathbb{E}[\,\text{adverse move} \mid \text{jump}\,]. $$
+   Here $P(\text{sniper beats cancel})$ is exactly the latency-race probability already implemented in `compute_p_win`, but now run **MM-vs-sniper** rather than sniper-vs-sniper.
+
+2. **Equilibrium spread as a fixed point.** The MM widens the half-spread $\lambda$ until spread revenue from uninformed ("noise") flow covers the sniping tax:
+   $$ \underbrace{\lambda \cdot \phi_{\text{noise}}}_{\text{revenue from noise traders}} \;=\; \underbrace{\mathcal{L}_{\text{snipe}}(\lambda) \cdot \phi_{\text{snipe}}}_{\text{losses to snipers}}. $$
+   Because $\mathcal{L}_{\text{snipe}}$ itself depends on how aggressively snipers act (which depends on $\lambda$), this is a genuine **fixed-point problem** — solved by Banach contraction iteration, *not* a closed form.
+
+3. **The market-design result.** The model's punchline is that this sniping tax is **mechanical and irreducible** in continuous-time trading: no spread fully eliminates it, because the race is a coin-flip on speed, not on information. Budish et al. use this to argue for **frequent batch auctions** (discretising time into short uniform-price auctions), which convert the speed race into a price race and collapse the tax. The second model would reproduce this by comparing the equilibrium spread under continuous trading vs. under batched auctions.
+
+### Why it is a separate model, not a patch
+
+- **It breaks the dominant strategy on purpose.** Once $\lambda$ is endogenous, the sniper's payoff is $P(\text{win})\cdot(\text{decayed signal} - \lambda)$ with $\lambda$ a function of sniper behaviour. The best response now depends on the opponent's strategy, so the equilibrium must be established by a fixed-point argument (Banach / Kakutani) and verified by an iterative solver — the current closed-form boundary and its one-shot indifference check (`verify_equilibrium_convergence`) would no longer apply, **by design**.
+- **It requires a different information structure.** Glosten–Milgrom's mechanism needs the MM to be *uninformed* and to learn from order flow via Bayesian updating. The current model exposes $V_t$ to everyone. The second model must therefore **hide $V_t$ from the MM** and have him infer it from informed-order arrivals — a structurally different setup.
+- **The OU process must stay.** It is tempting to make $V_t$ a martingale to fit the classic GM derivation, but that would kill the $D(\theta) = \mathbb{E}[e^{-\theta L}]$ signal-decay term that is the entire economic tension of the current boundary. The two models share the *same* OU primitive precisely so that they remain two lenses on one phenomenon.
+
+### Suggested staging
+
+| Stage | Deliverable | Solver | Risk |
+|-------|-------------|--------|------|
+| 0 (read-only) | **Break-even spread diagnostic**: report the minimum half-spread $\lambda_{\min}$ that covers the current sniping loss given live $(m, s, \theta)$. Zero changes to the existing core. | none (one formula) | minimal |
+| 1 | Standalone `BudishMarketMaker` with hidden value + Bayesian quote updates. | Banach fixed-point | medium |
+| 2 | Continuous-vs-batch-auction comparison reproducing the irreducible-tax result. | fixed-point + auction clearing | higher |
+
+Presented this way, ARCTIC tells a stronger, more honest story: a **taker's dominant strategy** (closed form, this repo) and a **maker's adverse-selection spread** (fixed point, future model) — two rigorous views of the same continuous-time latency race.
 
 ## Disclaimers
 
-**Loopback Latency Proxy.** The UDP loopback measurement (`127.0.0.1`) captures OS scheduler jitter — context switches, timer interrupts, cache pressure — producing $\sigma \approx 0.3\text{--}1.0$. Real co-location execution jitter has $\sigma \approx 0.05\text{--}0.2$. The live adaptation demo uses local jitter as a **pedagogical proxy** to demonstrate how equilibrium boundaries respond dynamically to variance shifts. It does not claim to measure production-grade network latency.
+**Loopback Latency Proxy.** The UDP loopback measurement (`127.0.0.1`) captures OS scheduler jitter — context switches, timer interrupts, cache pressure — producing a coefficient of variation $s/m \approx 0.3\text{--}1.0$. Real co-location execution has a tighter $s/m \approx 0.05\text{--}0.2$. The live adaptation demo holds the latency **mean** at a fixed model scale and lets the measured loopback **dispersion** (CV) drive the equilibrium boundary, as a **pedagogical proxy** for how boundaries respond to variance shifts. It does not claim to measure production-grade network latency.
 
 **Web Frontend.** The WebAssembly dashboard uses a synthetic latency random walk for visualization purposes. It does not receive live socket measurements from the host OS.
 
@@ -130,7 +172,7 @@ cmake --build . --config Release
 ### Components
 - `arctic`: Core executable. Runs the continuous-time agent race with live latency adaptation and LOB execution. Outputs equilibrium verification, Sharpe ratios, stopping time distributions, OU autocorrelation validation, LOB fill metrics, and per-run timing benchmarks.
 - `arctic_sweep`: Runs parameter sweeps across variance gap configurations. Outputs timing, Sharpe ratios, and mean stopping times per sweep step.
-- `test_ks`: Validates live jitter against a log-normal distribution via the Kolmogorov-Smirnov test. Cross-platform (Windows/Linux).
+- `test_ks`: Validates live jitter against a log-normal distribution via the Lilliefors test (KS statistic with the parameter-estimation–corrected critical value). Cross-platform (Windows/Linux).
 - `live_adaptation_logger`: Monitors OS jitter and dynamically shifts $b_A^*$ over a 60-second window, logging to CSV.
 - `bench_spsc`: Google Benchmark microbenchmarks for SPSC buffer, LOB, arena allocator, and RDTSCP overhead.
 
@@ -153,10 +195,10 @@ Opens a browser-native dashboard with:
 - KaTeX-rendered mathematical derivations
 - Interactive latency variance controls via SharedArrayBuffer
 
-## Mathematical Validity (KS-Test)
-The KS test validates the empirical log-normal fit of local UDP RTTs.
-$$ D_n = \sup_x |F_n(x) - F(x)| $$
-If $D_n > 1.36 / \sqrt{n}$ (for $\alpha = 0.05$), the null hypothesis of pure log-normal distribution is rejected. **Loopback testing frequently rejects this** due to OS scheduler anomalies producing heavy tails that the symmetric log-normal cannot capture. This is expected — a mixture model or heavy-tailed distribution (e.g., log-$t$) would be more appropriate for production use.
+## Mathematical Validity (Lilliefors Test)
+The goodness-of-fit test validates the empirical log-normal fit of local UDP RTTs using the two-sided supremum statistic
+$$ D_n = \sup_x |F_n(x) - F(x)| = \max_i \max\!\left(\left|\tfrac{i}{n} - F(x_{(i)})\right|,\ \left|\tfrac{i-1}{n} - F(x_{(i)})\right|\right). $$
+Because the log-normal parameters $(\mu, \sigma)$ are estimated **from the same sample** (MLE), the classical Kolmogorov–Smirnov critical value $1.36/\sqrt{n}$ is **invalid** — it assumes a fully specified null and is far too conservative. The correct test for a fitted (log-)normal is **Lilliefors'**, whose asymptotic $5\%$ critical value is $\approx 0.895/\sqrt{n}$. If $D_n > 0.895/\sqrt{n}$ the null of log-normality is rejected. **Loopback testing frequently rejects this** due to OS scheduler anomalies producing heavy tails that the symmetric log-normal cannot capture. This is expected — a mixture model or heavy-tailed distribution (e.g., log-$t$) would be more appropriate for production use.
 
 ## Performance Profiling
 

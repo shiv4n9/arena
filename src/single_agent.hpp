@@ -13,23 +13,24 @@ struct AgentDecision {
 
 class SingleAgent {
 public:
-    SingleAgent(double mu_delta, double sigma_delta, double dt);
+    // Latency is specified by its real-world MEAN and STANDARD DEVIATION; the
+    // constructor converts these to the underlying log-normal (mu, sigma) used
+    // for sampling, so the sampler matches the analytic math in math_utils.
+    SingleAgent(double mean_latency, double std_latency, double dt);
 
-    // check if signal crossed our threshold. using raw pointers because std::vector is too slow.
+    // Decide whether to fire. INFORMATION MODEL: send-side latency only — the
+    // agent's market data is real-time (it observes V at `current_step`), and the
+    // drawn latency `delta` delays ONLY the order's arrival (used downstream for
+    // execution timing and race resolution). This is the Budish-Cramton-Shim
+    // information structure and removes the spurious double-latency (observe-late
+    // AND execute-late) that otherwise makes the analytic decay inconsistent.
     template<typename RNG>
     AgentDecision evaluate_action(const double* v_data, int v_size, int current_step, double stopping_boundary, RNG& rng) {
-        double delta = lognormal_dist_(rng);
-        int lag_steps = static_cast<int>(delta / dt_);
-        int observation_index = current_step - lag_steps;
-        
-        if (observation_index < 0) {
-            observation_index = 0;
-        }
-        if (observation_index >= v_size) {
-            observation_index = v_size - 1;
-        }
-        
-        double observed_y = v_data[observation_index];
+        double delta = lognormal_dist_(rng);            // order-transmission latency
+        int idx = current_step;
+        if (idx < 0) idx = 0;
+        if (idx >= v_size) idx = v_size - 1;
+        double observed_y = v_data[idx];                // real-time observation
         bool acts = observed_y >= stopping_boundary;
         return {acts, delta};
     }
@@ -41,8 +42,8 @@ public:
     }
 
 private:
-    double mu_delta_;
-    double sigma_delta_;
+    double mean_latency_;
+    double std_latency_;
     double dt_;
     std::lognormal_distribution<double> lognormal_dist_;
 };

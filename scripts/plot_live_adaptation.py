@@ -13,13 +13,15 @@ def main():
     
     # Handle both old and new column names
     b_a_col = "Eq_b_A" if "Eq_b_A" in df.columns else "Nash_b_A"
+    # Convention A logs Std_A (real-world latency STD); fall back to legacy Sigma.
+    jitter_col = "Std_A" if "Std_A" in df.columns else "Sigma"
     
     fig, ax1 = plt.subplots(figsize=(10, 6))
     
     color1 = "#00ffff"
     ax1.set_xlabel("Time (s)", fontsize=14)
-    ax1.set_ylabel("Measured Jitter $\\sigma_A$ (Live)", color=color1, fontsize=14)
-    ax1.plot(df["Time_s"], df["Sigma"], linewidth=2.5, color=color1, label="Live Jitter ($\\sigma_A$)")
+    ax1.set_ylabel("Measured Jitter $s_A$ (Live)", color=color1, fontsize=14)
+    ax1.plot(df["Time_s"], df[jitter_col], linewidth=2.5, color=color1, label="Live Jitter ($s_A$)")
     ax1.tick_params(axis='y', labelcolor=color1)
     
     ax2 = ax1.twinx()  

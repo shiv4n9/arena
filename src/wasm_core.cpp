@@ -16,8 +16,8 @@ private:
     double theta = 2.0;
     double mu = 0.0;
     double sigma_V = 1.0;
-    double cost_c = 0.5;
-    double mu_delta = -4.0;  // LogNormal location parameter for latency
+    double cost_c = 0.05;  // = half-spread crossed when sniping (HFT-realistic)
+    double model_mean_latency = 0.02;  // fixed latency MEAN; live feed drives dispersion
     
     // cached OU math
     double ou_decay;          // exp(-theta * dt)
@@ -52,37 +52,79 @@ private:
         return 0.5 * std::erfc(-x * 0.70710678118654752440);
     }
 
-    // math for the trigger boundary
-    // dominant strategy so we don't care what they do
-    double compute_equilibrium_boundary(double sig_self, double sig_competitor) const {
-        // expected latency delay
-        double expected_latency = std::exp(mu_delta + sig_self * sig_self / 2.0);
-        
-        // how much the signal drops while we wait
-        double decay = std::exp(-theta * expected_latency);
-        
+    // Latency convention A: ln(L_i) ~ N(mu_i, sig_i^2), parameterised by the
+    // real-world latency MEAN m and STD s. Log-space moments are recovered via
+    //   sig_i^2 = ln(1 + (s/m)^2),  mu_i = ln(m) - sig_i^2/2,
+    // and E[L_i] = m directly.
+    static double latency_log_variance(double mean, double stddev) {
+        if (mean <= 0.0) return 0.0;
+        double cv = stddev / mean;
+        return std::log1p(cv * cv);
+    }
+    static double latency_log_mu(double mean, double stddev) {
+        return std::log(mean) - 0.5 * latency_log_variance(mean, stddev);
+    }
+
+    // Expected signal-decay E[e^{-theta L}] = Laplace transform of the log-normal
+    // latency. No closed form -> self-normalising Gaussian midpoint quadrature.
+    // By Jensen this is >= exp(-theta * mean), so dispersion erodes signal capture.
+    static double expected_signal_decay(double mean, double std, double theta) {
+        if (theta <= 0.0 || mean <= 0.0) return 1.0;
+        double sig2 = latency_log_variance(mean, std);
+        double sig_L = std::sqrt(sig2);
+        if (sig_L < 1e-12) return std::exp(-theta * mean);
+        double mu_L = latency_log_mu(mean, std);
+        constexpr int N = 512;
+        constexpr double zmax = 8.0;
+        const double dz = (2.0 * zmax) / N;
+        double num = 0.0, den = 0.0;
+        for (int k = 0; k < N; ++k) {
+            double z = -zmax + (k + 0.5) * dz;
+            double w = std::exp(-0.5 * z * z);
+            double latency = std::exp(mu_L + sig_L * z);
+            num += w * std::exp(-theta * latency);
+            den += w;
+        }
+        return num / den;
+    }
+
+    // P(self wins race) = Phi((mu_comp - mu_self) / sqrt(var_self + var_comp)).
+    double compute_p_win(double mean_self, double std_self,
+                         double mean_comp, double std_comp) const {
+        double mu_self = latency_log_mu(mean_self, std_self);
+        double mu_comp = latency_log_mu(mean_comp, std_comp);
+        double var_self = latency_log_variance(mean_self, std_self);
+        double var_comp = latency_log_variance(mean_comp, std_comp);
+        double combined_std = std::sqrt(var_self + var_comp);
+        if (combined_std < 1e-10) {
+            if (mean_self < mean_comp) return 1.0;
+            if (mean_self > mean_comp) return 0.0;
+            return 0.5;
+        }
+        return normal_cdf((mu_comp - mu_self) / combined_std);
+    }
+
+    // math for the trigger (sniping) boundary
+    // dominant strategy so we don't care what they do.
+    double compute_equilibrium_boundary(double mean_self, double std_self,
+                                        double mean_comp, double std_comp) const {
+        // Signal surviving the random delay: Laplace transform of latency.
+        double decay = expected_signal_decay(mean_self, std_self, theta);
         if (decay < 1e-10) {
             return 1.0; // Latency so high the signal decays entirely; fallback
         }
         
-        // chance we win the race based on variance diff
-        double var_self = sig_self * sig_self;
-        double var_comp = sig_competitor * sig_competitor;
-        double combined_std = std::sqrt(var_self + var_comp);
-        
-        double p_win = 0.5;
-        if (combined_std > 1e-10) {
-            p_win = normal_cdf((var_comp - var_self) / (2.0 * combined_std));
-        }
+        double p_win = compute_p_win(mean_self, std_self, mean_comp, std_comp);
         
         // where payoff hits zero. ignores opponent's boundary.
-        // => b* = mu + (c - mu) / (p_win * decay)
+        // P(win)*(b*-mu)*decay - cost_c = 0  =>  b* = mu + cost_c / (p_win * decay).
+        // Numerator is the cost, NOT (cost - mu): no mu = 0 assumption.
         double effective_decay = p_win * decay;
         if (effective_decay < 1e-10) {
             return 1.0; // Can't win; use fallback
         }
         
-        double b_star = mu + (cost_c - mu) / effective_decay;
+        double b_star = mu + cost_c / effective_decay;
         return b_star;
     }
 
@@ -107,36 +149,36 @@ public:
     
     // called on raf. runs the exact OU math
     void step_frame(int steps_per_frame) {
-        float sig_a = 0.1f; // fallback
+        float cv_a = 0.1f; // fallback coefficient of variation
         if (live_sigma_ptr != nullptr) {
-            // lock-free read
-            sig_a = live_sigma_ptr->load(std::memory_order_acquire);
+            // lock-free read; the live feed publishes a dispersion (CV) signal
+            cv_a = live_sigma_ptr->load(std::memory_order_acquire);
         }
         
         // Clamp to reasonable range
-        if (sig_a < 0.01f) sig_a = 0.01f;
-        if (sig_a > 2.0f) sig_a = 2.0f;
+        if (cv_a < 0.01f) cv_a = 0.01f;
+        if (cv_a > 2.0f) cv_a = 2.0f;
         
-        // Competitor is fixed at 0.2
-        float sig_b = 0.2f;
+        // Competitor holds a fixed CV of 0.2
+        float cv_b = 0.2f;
+        
+        // Map dispersions onto the fixed model latency scale (mean, std)
+        double mean_a = model_mean_latency;
+        double std_a = model_mean_latency * static_cast<double>(cv_a);
+        double mean_b = model_mean_latency;
+        double std_b = model_mean_latency * static_cast<double>(cv_b);
         
         // run the math for both
-        double b_A_val = compute_equilibrium_boundary(static_cast<double>(sig_a), static_cast<double>(sig_b));
-        double b_B_val = compute_equilibrium_boundary(static_cast<double>(sig_b), static_cast<double>(sig_a));
+        double b_A_val = compute_equilibrium_boundary(mean_a, std_a, mean_b, std_b);
+        double b_B_val = compute_equilibrium_boundary(mean_b, std_b, mean_a, std_a);
         
         // Cache for JS readback
         cached_boundary_a_val = static_cast<float>(b_A_val);
         cached_boundary_b_val = static_cast<float>(b_B_val);
         
         // Cache auxiliary diagnostics
-        double var_self = sig_a * sig_a;
-        double var_comp = sig_b * sig_b;
-        double combined_std = std::sqrt(var_self + var_comp);
-        if (combined_std > 1e-10) {
-            cached_p_win = static_cast<float>(normal_cdf((var_comp - var_self) / (2.0 * combined_std)));
-        }
-        double expected_latency_a = std::exp(mu_delta + var_self / 2.0);
-        cached_signal_decay_a = static_cast<float>(std::exp(-theta * expected_latency_a));
+        cached_p_win = static_cast<float>(compute_p_win(mean_a, std_a, mean_b, std_b));
+        cached_signal_decay_a = static_cast<float>(expected_signal_decay(mean_a, std_a, theta));
         
         for (int i = 0; i < steps_per_frame; ++i) {
             // exact OU step

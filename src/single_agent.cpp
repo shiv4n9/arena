@@ -1,17 +1,23 @@
 #include "single_agent.hpp"
+#include "math_utils.hpp"
+#include <cmath>
 #include <stdexcept>
 
 namespace arctic {
 
-SingleAgent::SingleAgent(double mu_delta, double sigma_delta, double dt)
-    : mu_delta_(mu_delta), sigma_delta_(sigma_delta), dt_(dt),
-      lognormal_dist_(mu_delta, sigma_delta) {
-    
+SingleAgent::SingleAgent(double mean_latency, double std_latency, double dt)
+    : mean_latency_(mean_latency), std_latency_(std_latency), dt_(dt),
+      lognormal_dist_(latency_log_mu(mean_latency, std_latency),
+                      std::sqrt(latency_log_variance(mean_latency, std_latency))) {
+
     if (dt <= 0.0) {
         throw std::invalid_argument("dt must be strictly positive.");
     }
-    if (sigma_delta < 0.0) {
-        throw std::invalid_argument("sigma_delta must be non-negative.");
+    if (mean_latency <= 0.0) {
+        throw std::invalid_argument("mean_latency must be strictly positive.");
+    }
+    if (std_latency < 0.0) {
+        throw std::invalid_argument("std_latency must be non-negative.");
     }
 }
 

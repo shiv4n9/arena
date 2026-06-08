@@ -36,55 +36,59 @@ Where:
 
 Network latency cannot be negative, and empirical measurements of packet round-trip times (RTTs) show a right-skewed "heavy tail" (due to occasional OS context switches, routing delays, or queue buildups). 
 
-Therefore, ARCTIC models an agent's latency $\delta$ as a Log-Normal distribution:
+Therefore, ARCTIC models an agent's latency $L$ as a Log-Normal distribution, parameterised by the quantities we can actually **measure** — the real-world latency **mean** $m_i$ and **standard deviation** $s_i$:
 
-$$ \delta \sim \text{Log-Normal}(\mu_\delta, \sigma_\delta^2) $$
+$$ \ln(L_i) \sim \mathcal{N}(\mu_i,\ \sigma_i^2), \qquad \sigma_i^2 = \ln\!\left(1 + \frac{s_i^2}{m_i^2}\right), \qquad \mu_i = \ln m_i - \tfrac{1}{2}\sigma_i^2. $$
 
-This means that the natural logarithm of the latency is normally distributed: $\ln(\delta) \sim \mathcal{N}(\mu_\delta, \sigma_\delta^2)$.
+The pair $(m_i, s_i)$ is supplied **per agent**; nothing is shared implicitly. Because we parameterise directly by the mean, the expected (mean) latency is simply:
 
-The expected value (mean latency) of a Log-Normal distribution is given by:
+$$ \mathbb{E}[L_i] = m_i $$
 
-$$ \mathbb{E}[\delta] = \exp\left(\mu_\delta + \frac{\sigma_\delta^2}{2}\right) $$
+and the median is $e^{\mu_i} = m_i^2/\sqrt{m_i^2 + s_i^2}$. This $(m,s)$ convention is exactly what `std::lognormal_distribution(\mu_i, \sigma_i)` draws, so the analytic math and the Monte-Carlo sampler agree by construction.
 
 **Code Implementation:**
 ```cpp
-// E[delta] for LogNormal(mu_delta, sigma^2)
-double expected_latency = std::exp(mu_delta + sig_self * sig_self / 2.0);
+// (mu, sigma) recovered from (mean, std) when sampling / computing P(win):
+//   sigma^2 = log1p((s/m)^2);  mu = log(m) - sigma^2/2;  E[L] = m
+// Signal decay uses the FULL distribution of L, not just its mean (see §4.1):
+//   decay = E[e^{-theta L}]  (Laplace transform, computed by quadrature)
+double decay = expected_signal_decay(mean_self, std_self, theta);
 ```
 
 ---
 
 ## 3. Deriving the Probability of Winning: $P(\text{win})$
 
-When two agents (Agent A and Agent B) decide to trade at the same time, they enter a latency race. The winner is the agent with the smaller latency: $\delta_A < \delta_B$.
+When two agents (Agent A and Agent B) decide to trade at the same time, they enter a latency race. The winner is the agent with the smaller latency: $L_A < L_B$.
 
-Because both $\delta_A$ and $\delta_B$ are Log-Normally distributed, their ratio $\frac{\delta_A}{\delta_B}$ is also mathematically tractable. Specifically, the log of their ratio is Normally distributed:
+Because both $L_A$ and $L_B$ are Log-Normally distributed, the difference of their logs is exactly Normal. With $\ln(L_i) \sim \mathcal{N}(\mu_i, \sigma_i^2)$:
 
-$$ \ln\left(\frac{\delta_A}{\delta_B}\right) = \ln(\delta_A) - \ln(\delta_B) $$
+$$ D = \ln(L_A) - \ln(L_B) \sim \mathcal{N}\!\left(\mu_A - \mu_B,\ \sigma_A^2 + \sigma_B^2\right) $$
 
-Since $\ln(\delta_A) \sim \mathcal{N}(\mu_\delta, \sigma_A^2)$ and $\ln(\delta_B) \sim \mathcal{N}(\mu_\delta, \sigma_B^2)$, assuming they share the same base network infrastructure distance ($\mu_\delta$) but have different jitter profiles ($\sigma$), the difference is:
+Agent A wins if $L_A < L_B$, i.e. $D < 0$. Using the standard normal CDF $\Phi$:
 
-$$ \ln(\delta_A) - \ln(\delta_B) \sim \mathcal{N}(0, \sigma_A^2 + \sigma_B^2) $$
+$$ P(L_A < L_B) = P(D < 0) = \Phi\!\left(\frac{\mu_B - \mu_A}{\sqrt{\sigma_A^2 + \sigma_B^2}}\right) $$
 
-Agent A wins if $\delta_A < \delta_B$, which is equivalent to $\ln(\delta_A) - \ln(\delta_B) < 0$. We calculate this using the Cumulative Distribution Function (CDF) of the standard normal distribution ($\Phi$):
-
-$$ P(\delta_A < \delta_B) = \Phi\left( \frac{0 - (\mu_A - \mu_B)}{\sqrt{\sigma_A^2 + \sigma_B^2}} \right) $$
-Because $\mu_A = \mu_B = \mu_\delta$, this simplifies to:
-$$ P(\delta_A < \delta_B) = \Phi\left( \frac{\sigma_B^2 - \sigma_A^2}{2\sqrt{\sigma_A^2 + \sigma_B^2}} \right) $$
-
-*(Note: The factor of 2 in the denominator arises from specific derivations in Information-Based Trading literature regarding the joint density of log-normals in order book races).*
+The race is decided by the median $g_i \equiv e^{\mu_i} = m_i^2/\sqrt{m_i^2 + s_i^2}$. A key — and initially counter-intuitive — consequence: at **equal mean** $m_A = m_B$, the agent with the **larger** jitter $s_i$ has the **smaller** $g_i$ and therefore wins **more** often. Rare latency spikes inflate the mean, so the typical (median) packet of the high-variance agent is actually faster. A durable win-rate edge requires a genuine **mean** advantage $m_A < m_B$, not merely tighter jitter.
 
 **Code Implementation (`compute_p_win`):**
 ```cpp
-double compute_p_win(double sig_self, double sig_competitor) {
-    double var_self = sig_self * sig_self;
-    double var_comp = sig_competitor * sig_competitor;
+double compute_p_win(double mean_self, double std_self,
+                     double mean_competitor, double std_competitor) {
+    double var_self = latency_log_variance(mean_self, std_self);  // ln(1+(s/m)^2)
+    double var_comp = latency_log_variance(mean_competitor, std_competitor);
     double combined_std = std::sqrt(var_self + var_comp);
-    if (combined_std < 1e-10) return 0.5; // Perfect tie
-    return normal_cdf((var_comp - var_self) / (2.0 * combined_std));
+    if (combined_std < 1e-10) {
+        if (mean_self < mean_competitor) return 1.0;
+        if (mean_self > mean_competitor) return 0.0;
+        return 0.5;
+    }
+    double mu_self = latency_log_mu(mean_self, std_self);  // ln(m) - var/2
+    double mu_comp = latency_log_mu(mean_competitor, std_competitor);
+    return normal_cdf((mu_comp - mu_self) / combined_std);
 }
 ```
-**Why this matters:** This function mathematically defines the value of low latency. If $\sigma_A < \sigma_B$ (Agent A has less network jitter), $P(\text{win}) > 0.5$. This is how HFT firms justify millions of dollars in microwave tower investments—minimizing $\sigma$ directly increases $P(\text{win})$.
+**Why this matters:** A genuine speed edge lives in the **mean** latency $m$ (co-location, microwave links lower $m$). Jitter $s$ alone, at equal mean, actually *helps* the noisier agent's race odds via the median effect above; it is not a clean, universal source of edge.
 
 ---
 
@@ -93,43 +97,48 @@ double compute_p_win(double sig_self, double sig_competitor) {
 To find the optimal trading boundary $b^*$, we use the **Indifference Condition**. An agent is indifferent to trading when the expected profit of the trade is exactly zero. At any signal value higher than $b^*$, the expected profit is positive, and the agent should act.
 
 ### Step 4.1: Signal Decay
-If an agent acts at time $t$ when the signal is $V_t = b$, the order takes $\delta$ time to arrive. What is the expected value of the signal when the order arrives? Because it's an OU process, it mean-reverts during the delay:
+If an agent acts at time $t$ when the signal is $V_t = b$, the order takes a **random** delay $\delta$ (the send-side latency) to arrive. We need the expected surviving edge, averaged over the randomness of $\delta$. For a fixed delay the OU process mean-reverts as $\mu + (b-\mu)e^{-\theta\delta}$; taking the expectation over $\delta$ and pulling out the deterministic $(b-\mu)$ term:
 
-$$ \mathbb{E}[V_{t+\delta} \mid V_t = b] = \mu + (b - \mu) e^{-\theta \mathbb{E}[\delta]} $$
+$$ \mathbb{E}_\delta\big[\mathbb{E}[V_{t+\delta} \mid V_t = b]\big] = \mu + (b - \mu)\,\underbrace{\mathbb{E}\big[e^{-\theta \delta}\big]}_{\displaystyle D(\theta)} $$
+
+The factor $D(\theta) \equiv \mathbb{E}[e^{-\theta\delta}]$ is the **Laplace transform** of the latency distribution evaluated at $\theta$ — *not* $e^{-\theta\,\mathbb{E}[\delta]}$. Since $x\mapsto e^{-\theta x}$ is convex, **Jensen's inequality** gives
+
+$$ D(\theta) = \mathbb{E}[e^{-\theta\delta}] \;\ge\; e^{-\theta\,\mathbb{E}[\delta]}, $$
+
+with strict inequality whenever $\delta$ has any dispersion. So latency **variance** (not just the mean) materially changes the surviving signal, and it does so in the agent's favour: a noisy-but-occasionally-fast link captures more edge than its mean alone would suggest. The log-normal has **no closed-form** Laplace transform, so $D(\theta)$ is evaluated by numerical Gaussian quadrature (`expected_signal_decay`).
 
 ### Step 4.2: Expected Payoff
-The expected payoff accounts for the cost of the trade $c$ (e.g., crossing the spread, exchange fees) and the probability of actually winning the race:
+The agent **snipes a stale quote** anchored at the unconditional mean $\mu$ (the rational static quote a market maker posts for a mean-reverting fundamental). Crossing the half-spread costs $c$, so the *fill price* is $\mu + c$.
 
-$$ \mathbb{E}[\text{Payoff}] = P(\text{win}) \times \left( \mathbb{E}[V_{t+\delta} \mid V_t = b] - c \right) $$
+- **If the agent wins the race**, it lifts the stale quote and captures the transient edge. Its PnL is $V_{t+\delta} - (\mu + c)$, whose expectation is $\mu + (b-\mu)D - (\mu + c) = (b-\mu)D - c$.
+- **If the agent loses**, the market maker has already repriced to the corrected fair value, so the late order crosses a fresh spread and nets exactly $-c$ (the **loser-pays** mechanism: speed is a cost even when you don't win).
+
+Combining both outcomes, the expected payoff of committing at $V_t = b$ is
+
+$$ \mathbb{E}[\text{Payoff}] = P(\text{win})\big[(b-\mu)D - c\big] + \big(1 - P(\text{win})\big)(-c) = P(\text{win})\,(b-\mu)\,D - c. $$
 
 ### Step 4.3: Solving for $b^*$
 We set the Expected Payoff to 0 and solve for $b^*$:
 
-$$ P(\text{win}) \times \left( \mu + (b^* - \mu) e^{-\theta \mathbb{E}[\delta]} - c \right) = 0 $$
+$$ P(\text{win})\,(b^* - \mu)\,D - c = 0 $$
+$$ (b^* - \mu)\,D = \frac{c}{P(\text{win})} $$
+$$ b^* = \mu + \frac{c}{P(\text{win}) \cdot D(\theta)} $$
 
-Divide out $P(\text{win})$ (assuming it's > 0) and isolate $b^*$:
-
-$$ \mu + (b^* - \mu) e^{-\theta \mathbb{E}[\delta]} = c $$
-$$ (b^* - \mu) e^{-\theta \mathbb{E}[\delta]} = c - \mu $$
-$$ b^* - \mu = \frac{c - \mu}{P(\text{win}) \cdot e^{-\theta \mathbb{E}[\delta]}} $$
-$$ b^* = \mu + \frac{c - \mu}{P(\text{win}) \cdot e^{-\theta \mathbb{E}[\delta]}} $$
-
-*(Note: In the implementation, $P(\text{win})$ is factored into the denominator. If the agent acts alone, $P(\text{win}) = 1$, and the boundary is lower. In competition, $P(\text{win}) < 1$, which makes the denominator smaller, pushing $b^*$ higher. This proves mathematically that **competition forces agents to require a higher safety margin before trading**).*
+The numerator is the cost $c$ **alone** — not $c - \mu$. (The earlier $c-\mu$ form silently assumed $\mu = 0$; the corrected derivation above is general for any $\mu$.) If the agent acts alone, $P(\text{win}) = 1$ and the boundary is lower; in competition $P(\text{win}) < 1$ shrinks the denominator and pushes $b^*$ higher, so **competition forces a larger safety margin before trading**. Latency dispersion enters $b^*$ **twice** — through $P(\text{win})$ and through the Laplace-transform decay $D(\theta)$.
 
 **Code Implementation (`compute_equilibrium_boundary`):**
 ```cpp
-double compute_equilibrium_boundary(double sig_self, double sig_competitor,
-                                     double theta, double mu_delta,
-                                     double mu, double cost_c) {
-    double expected_latency = std::exp(mu_delta + sig_self * sig_self / 2.0);
-    double decay = std::exp(-theta * expected_latency);
+double compute_equilibrium_boundary(double mean_self, double std_self,
+                                    double mean_competitor, double std_competitor,
+                                    double theta, double mu, double cost_c) {
+    double decay = expected_signal_decay(mean_self, std_self, theta); // E[e^{-theta L}]
     if (decay < 1e-10) return 1.0; 
 
-    double p_win = compute_p_win(sig_self, sig_competitor);
+    double p_win = compute_p_win(mean_self, std_self, mean_competitor, std_competitor);
     double effective = p_win * decay;
     if (effective < 1e-10) return 1.0; 
 
-    return mu + (cost_c - mu) / effective;
+    return mu + cost_c / effective;   // b* = mu + c / (P(win) * D)
 }
 ```
 
@@ -147,7 +156,7 @@ $$ b_A^* = \mu + \frac{c - \mu}{P(\text{win}) \cdot e^{-\theta \mathbb{E}[\delta
 
 The parameters required to calculate this are:
 *   $\mu, c, \theta$: Exogenous market constants.
-*   $\delta_A, P(\text{win})$: Dependent purely on the physical network latencies ($\sigma_A, \sigma_B$).
+*   $m_A, P(\text{win})$: Dependent purely on the physical network latencies ($m_A, s_A, m_B, s_B$).
 
 Notice what is missing: **Agent B's chosen boundary ($b_B$) does not appear in the equation.**
 
@@ -168,9 +177,9 @@ bool verify_equilibrium_convergence(...) {
 
     for (int k = 0; k < max_iters; ++k) {
         // Best response for A: does NOT mathematically use b_B
-        double b_A_new = compute_equilibrium_boundary(sig_A, sig_B, ...);
+        double b_A_new = compute_equilibrium_boundary(mu_delta_A, sig_A, mu_delta_B, sig_B, ...);
         // Best response for B: does NOT mathematically use b_A
-        double b_B_new = compute_equilibrium_boundary(sig_B, sig_A, ...);
+        double b_B_new = compute_equilibrium_boundary(mu_delta_B, sig_B, mu_delta_A, sig_A, ...);
 
         double err_A = std::abs(b_A_new - b_A);
         double err_B = std::abs(b_B_new - b_B);

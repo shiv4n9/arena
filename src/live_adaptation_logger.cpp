@@ -31,33 +31,39 @@ int main() {
     std::cout << "Warmup complete: " << live_latency.get_sample_count() << " samples." << std::endl;
     
     std::ofstream out("data/live_adaptation.csv");
-    out << "Time_s,Mu,Sigma,Eq_b_A,Eq_b_B,P_Win,Signal_Decay\n";
+    out << "Time_s,Mean_A,Std_A,CV_A,Eq_b_A,Eq_b_B,P_Win,Signal_Decay\n";
     
-    // Fixed parameters
-    double sigma_B = 0.2;  
+    // Fixed model latency scale; the live network drives only the relative
+    // dispersion (coefficient of variation). Competitor B holds a tight CV.
+    const double model_mean_latency = 0.02;
+    const double mean_B = 0.02;
+    const double std_B = 0.004; // CV_B = 0.2
     double theta = 2.0;
-    double mu_delta = -4.0;
     double mu = 0.0;
-    double cost_c = 0.5;
+    double cost_c = 0.05; // = half-spread crossed when sniping (unified cost)
 
     for (int t = 0; t <= 60; ++t) {
-        double current_mu = live_latency.get_mu();
-        double current_sigma = live_latency.get_sigma();
+        double live_mean = live_latency.get_mean_latency();
+        double live_std = live_latency.get_std_latency();
+        double cv_A = (live_mean > 0.0) ? live_std / live_mean : 0.0;
         
-        if (current_sigma < 0.01) current_sigma = 0.01;
+        if (cv_A < 0.01) cv_A = 0.01;
+        if (cv_A > 2.0) cv_A = 2.0;
         
-        double b_A = arctic::compute_equilibrium_boundary(current_sigma, sigma_B, theta, mu_delta, mu, cost_c);
-        double b_B = arctic::compute_equilibrium_boundary(sigma_B, current_sigma, theta, mu_delta, mu, cost_c);
-        double p_win = arctic::compute_p_win(current_sigma, sigma_B);
-        double expected_latency = std::exp(mu_delta + current_sigma * current_sigma / 2.0);
-        double signal_decay = std::exp(-theta * expected_latency);
+        double mean_A = model_mean_latency;
+        double std_A = model_mean_latency * cv_A;
         
-        out << t << "," << current_mu << "," << current_sigma 
+        double b_A = arctic::compute_equilibrium_boundary(mean_A, std_A, mean_B, std_B, theta, mu, cost_c);
+        double b_B = arctic::compute_equilibrium_boundary(mean_B, std_B, mean_A, std_A, theta, mu, cost_c);
+        double p_win = arctic::compute_p_win(mean_A, std_A, mean_B, std_B);
+        double signal_decay = arctic::expected_signal_decay(mean_A, std_A, theta);
+        
+        out << t << "," << mean_A << "," << std_A << "," << cv_A
             << "," << b_A << "," << b_B << "," << p_win 
             << "," << signal_decay << "\n";
         
         if (t % 10 == 0) {
-            std::cout << "t=" << t << "s | Sigma: " << current_sigma 
+            std::cout << "t=" << t << "s | Std_A: " << std_A 
                       << " | b_A*: " << b_A << " | P(win): " << p_win 
                       << " | Decay: " << signal_decay 
                       << " | n=" << live_latency.get_sample_count() << std::endl;

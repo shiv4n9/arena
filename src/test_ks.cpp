@@ -147,18 +147,27 @@ int main() {
     double d_max = 0.0;
     int n = static_cast<int>(empirical_samples.size());
     for (int i = 0; i < n; ++i) {
-        double empirical_cdf = static_cast<double>(i + 1) / n;
+        // Two-sided supremum: at each order statistic the empirical CDF jumps from
+        // i/n to (i+1)/n, so the true sup |F_n - F| must be checked on BOTH sides
+        // of the jump. Using only (i+1)/n understates D_n by up to 1/n.
+        double cdf_after = static_cast<double>(i + 1) / n; // F_n just after x_(i)
+        double cdf_before = static_cast<double>(i) / n;    // F_n just before x_(i)
         double theoretical_cdf = lognormalCDF(empirical_samples[i], fitted_mu, fitted_sigma);
-        d_max = std::max(d_max, std::abs(empirical_cdf - theoretical_cdf));
+        d_max = std::max(d_max, std::abs(cdf_after - theoretical_cdf));
+        d_max = std::max(d_max, std::abs(cdf_before - theoretical_cdf));
     }
     
-    // 5% significance
-    double critical_value = 1.36 / std::sqrt(static_cast<double>(n));
+    // Critical value at alpha = 0.05. We estimate mu and sigma from the SAME sample
+    // (MLE), so the classical KS table (1.36/sqrt(n)) is INVALID — it assumes a
+    // fully specified null distribution and is far too conservative here. The
+    // correct test is Lilliefors' for the (log-)normal with estimated parameters;
+    // its asymptotic 5% critical value is ~0.895/sqrt(n).
+    double critical_value = 0.895 / std::sqrt(static_cast<double>(n));
     
     std::cout << "------------------------------------------" << std::endl;
-    std::cout << "Kolmogorov-Smirnov Test Results (n=" << n << ")" << std::endl;
+    std::cout << "Lilliefors Test Results (n=" << n << ", params MLE-estimated)" << std::endl;
     std::cout << "KS Statistic (D_n): " << d_max << std::endl;
-    std::cout << "Critical Value (alpha=0.05): " << critical_value << std::endl;
+    std::cout << "Lilliefors Critical Value (alpha=0.05): " << critical_value << std::endl;
     
     if (d_max < critical_value) {
         std::cout << "Result: PASS. Empirical jitter is consistent with Log-Normal." << std::endl;

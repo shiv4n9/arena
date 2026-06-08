@@ -14,14 +14,19 @@ def main():
     # Handle both old (Nash_B_A) and new (Eq_B_A) column names
     b_a_col = "Eq_B_A" if "Eq_B_A" in df.columns else "Nash_B_A"
     
-    df_plot = df[df["Sigma_A"] >= df["Sigma_B"]].copy()
-    df_plot["Variance_Gap"] = df_plot["Sigma_A"] - df_plot["Sigma_B"]
+    # Convention A schema uses Std_A/Std_B (real-world latency STD); fall back to
+    # the legacy Sigma_A/Sigma_B (log-space) column names if present.
+    std_a_col = "Std_A" if "Std_A" in df.columns else "Sigma_A"
+    std_b_col = "Std_B" if "Std_B" in df.columns else "Sigma_B"
+    
+    df_plot = df[df[std_a_col] >= df[std_b_col]].copy()
+    df_plot["Variance_Gap"] = df_plot[std_a_col] - df_plot[std_b_col]
     
     # Plot 1: Competitive Cost vs Variance Gap
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df_plot["Variance_Gap"], df_plot["Competitive_Cost"], marker='o', linewidth=2.5, color="#ff00ff")
-    ax.set_title("Competitive Cost of Latency Variance", fontsize=16, fontweight='bold', color='white')
-    ax.set_xlabel("Variance Gap ($\\sigma_A - \\sigma_B$)", fontsize=14)
+    ax.set_title("Competitive Cost of Latency Dispersion", fontsize=16, fontweight='bold', color='white')
+    ax.set_xlabel("Dispersion Gap ($s_A - s_B$)", fontsize=14)
     ax.set_ylabel("PnL Penalty (Solo - Agent A)", fontsize=14)
     ax.fill_between(df_plot["Variance_Gap"], df_plot["Competitive_Cost"], color="#ff00ff", alpha=0.1)
     plt.tight_layout()
@@ -31,7 +36,7 @@ def main():
     # Plot 2: Win Rate and Equilibrium Boundary vs Variance Gap
     fig, ax1 = plt.subplots(figsize=(10, 6))
     color1 = "#00ffff"
-    ax1.set_xlabel("Variance Gap ($\\sigma_A - \\sigma_B$)", fontsize=14)
+    ax1.set_xlabel("Dispersion Gap ($s_A - s_B$)", fontsize=14)
     ax1.set_ylabel("Win Rate (%)", color=color1, fontsize=14)
     ax1.plot(df_plot["Variance_Gap"], df_plot["Win_Rate_A"] * 100, marker='s', linewidth=2.5, color=color1, label="Agent A Win Rate")
     ax1.tick_params(axis='y', labelcolor=color1)
@@ -51,8 +56,8 @@ def main():
     if "Sharpe_A" in df_plot.columns:
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(df_plot["Variance_Gap"], df_plot["Sharpe_A"], marker='D', linewidth=2.5, color="#00ff00")
-        ax.set_title("Sharpe Ratio Degradation under Latency Variance", fontsize=16, fontweight='bold', color='white')
-        ax.set_xlabel("Variance Gap ($\\sigma_A - \\sigma_B$)", fontsize=14)
+        ax.set_title("Sharpe Ratio Degradation under Latency Dispersion", fontsize=16, fontweight='bold', color='white')
+        ax.set_xlabel("Dispersion Gap ($s_A - s_B$)", fontsize=14)
         ax.set_ylabel("Sharpe Ratio (Agent A)", fontsize=14)
         ax.fill_between(df_plot["Variance_Gap"], df_plot["Sharpe_A"], color="#00ff00", alpha=0.1)
         plt.tight_layout()

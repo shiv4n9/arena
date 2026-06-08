@@ -20,23 +20,27 @@
 #include <numeric>
 #include <memory>
 
-void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_name) {
+void run_simulation(double mean_A, double std_A, double mean_B, double std_B,
+                    const std::string& scenario_name) {
     double theta = 2.0;
     double mu = 0.0;
     double sigma_V = 1.0;
     double dt = 0.01;
     int steps = 1000;
     int num_paths = 50000;
-    double cost_c = 0.5;
-    double mu_delta = -4.0; 
+    // Cost of crossing the spread = the half-spread the sniper pays. These MUST
+    // be the same number: the analytic boundary is the zero-EV threshold of the
+    // simulated payoff only if cost_c == half_spread.
+    constexpr double half_spread = 0.05; // 5-tick half-spread
+    double cost_c = half_spread;
     
     // verify math
-    arctic::verify_equilibrium_convergence(sigma_A, sigma_B, theta, mu_delta, mu, cost_c);
+    arctic::verify_equilibrium_convergence(mean_A, std_A, mean_B, std_B, theta, mu, cost_c);
     
     arctic::OUSampler sampler(theta, mu, sigma_V, dt);
-    arctic::SingleAgent agent_solo(mu_delta, sigma_A, dt);
-    arctic::SingleAgent agent_a(mu_delta, sigma_A, dt);
-    arctic::SingleAgent agent_b(mu_delta, sigma_B, dt);
+    arctic::SingleAgent agent_solo(mean_A, std_A, dt);
+    arctic::SingleAgent agent_a(mean_A, std_A, dt);
+    arctic::SingleAgent agent_b(mean_B, std_B, dt);
     arctic::RaceResolver resolver;
     
     // bugfix: need different seeds here otherwise they pull the exact same
@@ -47,9 +51,9 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     std::mt19937_64 rng_b(301);     // Was 200
     
     // Derived equilibrium boundaries
-    double b_solo = arctic::compute_solo_boundary(sigma_A, theta, mu_delta, mu, cost_c);
-    double b_a = arctic::compute_equilibrium_boundary(sigma_A, sigma_B, theta, mu_delta, mu, cost_c); 
-    double b_b = arctic::compute_equilibrium_boundary(sigma_B, sigma_A, theta, mu_delta, mu, cost_c); 
+    double b_solo = arctic::compute_solo_boundary(mean_A, std_A, theta, mu, cost_c);
+    double b_a = arctic::compute_equilibrium_boundary(mean_A, std_A, mean_B, std_B, theta, mu, cost_c); 
+    double b_b = arctic::compute_equilibrium_boundary(mean_B, std_B, mean_A, std_A, theta, mu, cost_c); 
     
     double pnl_solo = 0.0;
     double pnl_a = 0.0;
@@ -73,7 +77,6 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     
     // limit order book. big heap alloc upfront, then we just clear/seed it per path
     auto lob = std::make_unique<arctic::OrderBook>(0.01, mu);
-    constexpr double half_spread = 0.05; // 5-tick half-spread
     constexpr int lob_depth = 10;        // 10 levels each side
     constexpr int32_t qty_per_level = 100;
     double total_slippage = 0.0;
@@ -94,34 +97,44 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
         for (int i = 1; i < steps; ++i) {
             v_history[i] = sampler.step(v_history[i - 1], rng_ou);
         }
+
+        // Fair value at a FRACTIONAL (continuous) execution time t = i + delta/dt.
+        // The order arrives at a real-valued instant, so we linearly interpolate the
+        // discrete OU path instead of truncating delta/dt to an integer (removes the
+        // sub-step rounding bias S1).
+        auto v_at = [&](double t) -> double {
+            if (t <= 0.0) return v_history[0];
+            if (t >= static_cast<double>(steps - 1)) return v_history[steps - 1];
+            int lo = static_cast<int>(t);
+            double f = t - lo;
+            return v_history[lo] * (1.0 - f) + v_history[lo + 1] * f;
+        };
         
         bool solo_acted = false;
         bool game_resolved = false;
-        int mm_update_freq = 5; // MM updates quotes every 5 steps (50ms)
+        int mm_update_freq = 5; // MM refreshes its (static, mean-anchored) book every 5 steps
         
         for (int i = 1; i < steps; ++i) {
-            // Market Maker maintains the LOB continuously
+            // Market Maker quotes a STATIC book anchored at the unconditional mean mu.
+            // For a mean-reverting fundamental the rational static quote is mu +/-
+            // half_spread; the transient deviation (V_i - mu) is the stale edge a
+            // latency winner snipes before the MM can reprice.
             if (i % mm_update_freq == 0) {
                 lob->clear();
-                lob->seed_liquidity(v_history[i], half_spread, lob_depth, qty_per_level);
+                lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
             }
 
             if (!solo_acted) {
                 auto decision_solo = agent_solo.evaluate_action(v_history, steps, i, b_solo, rng_solo);
                 if (decision_solo.wants_to_act) {
-                    int exec_step = std::min(i + static_cast<int>(decision_solo.latency_drawn / dt), steps - 1);
-                    
-                    // We don't magically clear the LOB here anymore!
-                    // We capture the LOB state exactly as it will be at exec_step.
-                    // Wait, the simulation is currently at step 'i'.
-                    // The order arrives at 'exec_step'.
-                    // To do this properly without a full event queue, we can just compute what the MM would have done.
-                    // The MM last updated at (exec_step - (exec_step % mm_update_freq)).
-                    // So we can temporarily clear and seed the LOB for the exact state at exec_step.
+                    // Continuous execution instant and the fair value realised there.
+                    double exec_t = i + decision_solo.latency_drawn / dt;
+                    double v_exec = v_at(exec_t);
+
+                    // Snipe the stale mean-anchored quote: reseed the book at mu and
+                    // lift the offer. Fill ~ mu + half_spread; PnL = V_exec - fill.
                     lob->clear();
-                    int last_mm_update = exec_step - (exec_step % mm_update_freq);
-                    lob->seed_liquidity(v_history[last_mm_update], half_spread, lob_depth, qty_per_level);
-                    
+                    lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
                     double best_ask_before = lob->get_best_ask_price();
                     lob->match_market_order(true, 1); // buy 1 lot
                     const arctic::Fill* fills = lob->get_fills();
@@ -131,8 +144,8 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
                     double slippage = fill_price - best_ask_before;
                     total_slippage += slippage;
                     lob_fills++;
-                    
-                    double path_pnl = v_history[exec_step] - fill_price;
+
+                    double path_pnl = v_exec - fill_price;
                     pnl_solo += path_pnl;
                     pnl_per_path_solo[p] = path_pnl;
                     trades_solo++;
@@ -146,61 +159,88 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
                 auto dec_b = agent_b.evaluate_action(v_history, steps, i, b_b, rng_b);
                 
                 if (dec_a.wants_to_act && dec_b.wants_to_act) {
+                    // CONTESTED RACE. Winner snipes the stale mu quote; loser arrives
+                    // after the MM has repriced to the corrected fair, so it crosses a
+                    // fresh spread and nets exactly -half_spread (loser-pays mechanism).
                     auto result = resolver.resolve_race(dec_a.latency_drawn, dec_b.latency_drawn);
-                    int exec_step_a = std::min(i + static_cast<int>(dec_a.latency_drawn / dt), steps - 1);
-                    int exec_step_b = std::min(i + static_cast<int>(dec_b.latency_drawn / dt), steps - 1);
-                    
+                    double exec_t_a = i + dec_a.latency_drawn / dt;
+                    double exec_t_b = i + dec_b.latency_drawn / dt;
+                    double v_exec_a = v_at(exec_t_a);
+                    double v_exec_b = v_at(exec_t_b);
+
                     if (result.agent_a_won) {
+                        // Winner A: snipe stale mu quote.
                         lob->clear();
-                        int last_mm_update = exec_step_a - (exec_step_a % mm_update_freq);
-                        lob->seed_liquidity(v_history[last_mm_update], half_spread, lob_depth, qty_per_level);
-                        
+                        lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
                         lob->match_market_order(true, 1);
                         const arctic::Fill* fills = lob->get_fills();
                         double fill_price = (lob->get_fill_count() > 0)
-                            ? lob->ticks_to_price(fills[0].price_ticks) : (v_history[last_mm_update] + half_spread);
-                        double path_pnl = v_history[exec_step_a] - fill_price;
-                        pnl_a += path_pnl;
-                        pnl_per_path_a[p] = path_pnl;
+                            ? lob->ticks_to_price(fills[0].price_ticks) : (mu + half_spread);
+                        pnl_a += (v_exec_a - fill_price);
+                        pnl_per_path_a[p] = v_exec_a - fill_price;
                         trades_a++;
                         stop_time_a.push_back(i);
-                    } else if (result.agent_b_won) {
+
+                        // Loser B: book repriced to its corrected fair value.
                         lob->clear();
-                        int last_mm_update = exec_step_b - (exec_step_b % mm_update_freq);
-                        lob->seed_liquidity(v_history[last_mm_update], half_spread, lob_depth, qty_per_level);
-                        
+                        lob->seed_liquidity(v_exec_b, half_spread, lob_depth, qty_per_level);
+                        lob->match_market_order(true, 1);
+                        const arctic::Fill* lfills = lob->get_fills();
+                        double lfill = (lob->get_fill_count() > 0)
+                            ? lob->ticks_to_price(lfills[0].price_ticks) : (v_exec_b + half_spread);
+                        pnl_b += (v_exec_b - lfill); // = -half_spread
+                        trades_b++;
+                    } else if (result.agent_b_won) {
+                        // Winner B.
+                        lob->clear();
+                        lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
                         lob->match_market_order(true, 1);
                         const arctic::Fill* fills = lob->get_fills();
                         double fill_price = (lob->get_fill_count() > 0)
-                            ? lob->ticks_to_price(fills[0].price_ticks) : (v_history[last_mm_update] + half_spread);
-                        double path_pnl = v_history[exec_step_b] - fill_price;
-                        pnl_b += path_pnl;
+                            ? lob->ticks_to_price(fills[0].price_ticks) : (mu + half_spread);
+                        pnl_b += (v_exec_b - fill_price);
                         trades_b++;
+
+                        // Loser A.
+                        lob->clear();
+                        lob->seed_liquidity(v_exec_a, half_spread, lob_depth, qty_per_level);
+                        lob->match_market_order(true, 1);
+                        const arctic::Fill* lfills = lob->get_fills();
+                        double lfill = (lob->get_fill_count() > 0)
+                            ? lob->ticks_to_price(lfills[0].price_ticks) : (v_exec_a + half_spread);
+                        double la_pnl = v_exec_a - lfill; // = -half_spread
+                        pnl_a += la_pnl;
+                        pnl_per_path_a[p] = la_pnl;
+                        trades_a++;
+                        stop_time_a.push_back(i);
                     }
                     game_resolved = true;
                 } else if (dec_a.wants_to_act) {
-                    int exec_step = std::min(i + static_cast<int>(dec_a.latency_drawn / dt), steps - 1);
+                    // UNCONTESTED fire by A: no rival to lose to, so A snipes the
+                    // stale mu quote uncontested (treated as winner).
+                    double v_exec = v_at(i + dec_a.latency_drawn / dt);
                     lob->clear();
-                    lob->seed_liquidity(v_history[exec_step], half_spread, lob_depth, qty_per_level);
+                    lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
                     lob->match_market_order(true, 1);
                     const arctic::Fill* fills = lob->get_fills();
                     double fill_price = (lob->get_fill_count() > 0)
-                        ? lob->ticks_to_price(fills[0].price_ticks) : (v_history[exec_step] + half_spread);
-                    double path_pnl = v_history[exec_step] - fill_price;
+                        ? lob->ticks_to_price(fills[0].price_ticks) : (mu + half_spread);
+                    double path_pnl = v_exec - fill_price;
                     pnl_a += path_pnl;
                     pnl_per_path_a[p] = path_pnl;
                     trades_a++;
                     stop_time_a.push_back(i);
                     game_resolved = true;
                 } else if (dec_b.wants_to_act) {
-                    int exec_step = std::min(i + static_cast<int>(dec_b.latency_drawn / dt), steps - 1);
+                    // UNCONTESTED fire by B.
+                    double v_exec = v_at(i + dec_b.latency_drawn / dt);
                     lob->clear();
-                    lob->seed_liquidity(v_history[exec_step], half_spread, lob_depth, qty_per_level);
+                    lob->seed_liquidity(mu, half_spread, lob_depth, qty_per_level);
                     lob->match_market_order(true, 1);
                     const arctic::Fill* fills = lob->get_fills();
                     double fill_price = (lob->get_fill_count() > 0)
-                        ? lob->ticks_to_price(fills[0].price_ticks) : (v_history[exec_step] + half_spread);
-                    pnl_b += (v_history[exec_step] - fill_price);
+                        ? lob->ticks_to_price(fills[0].price_ticks) : (mu + half_spread);
+                    pnl_b += (v_exec - fill_price);
                     trades_b++;
                     game_resolved = true;
                 }
@@ -220,7 +260,7 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     double avg_pnl_solo = trades_solo ? pnl_solo / num_paths : 0.0;
     double avg_pnl_a = trades_a ? pnl_a / num_paths : 0.0;
     
-    double p_win_a = arctic::compute_p_win(sigma_A, sigma_B);
+    double p_win_a = arctic::compute_p_win(mean_A, std_A, mean_B, std_B);
     double sharpe_solo = arctic::compute_sharpe_ratio(pnl_per_path_solo.data(), num_paths);
     double sharpe_a = arctic::compute_sharpe_ratio(pnl_per_path_a.data(), num_paths);
     
@@ -249,7 +289,8 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
     
     // print
     std::cout << "\nARCTIC Simulation: " << scenario_name << std::endl;
-    std::cout << "sigma_A = " << sigma_A << ", sigma_B = " << sigma_B << std::endl;
+    std::cout << "Agent A latency: mean=" << mean_A << ", std=" << std_A
+              << "  |  Agent B latency: mean=" << mean_B << ", std=" << std_B << std::endl;
     std::cout << "Equilibrium b_A* = " << b_a << " | b_B* = " << b_b 
               << " | P(A wins race) = " << p_win_a << std::endl;
     std::cout << "────────────────────────────────────────────────────────" << std::endl;
@@ -261,7 +302,7 @@ void run_simulation(double sigma_A, double sigma_B, const std::string& scenario_
               << " | Mean Stop: " << mean_stop_a << std::endl;
     std::cout << "Agent B    | Trades: " << trades_b << " | Win Rate: " << win_rate_b * 100.0 << "%" << std::endl;
     
-    if (sigma_A > sigma_B) {
+    if (p_win_a < 0.5) {
         std::cout << "-> Competitive Cost (Solo - Agent A PnL): " << (avg_pnl_solo - avg_pnl_a) << std::endl;
     }
     
@@ -300,24 +341,39 @@ int main() {
     }
     std::cout << "Collected " << live_latency.get_sample_count() << " warmup samples." << std::endl;
     
-    double sigma_B_static = 0.2;
+    // The live loopback measures latency at a microsecond scale, far below the
+    // model's time units. We therefore keep the latency *scale* fixed at a model
+    // mean and let the live network drive only the relative dispersion
+    // (coefficient of variation = std/mean), exactly the "adapt jitter, hold
+    // scale" intent of the original demo — now expressed in (mean, std) terms.
+    const double model_mean_latency = 0.02; // fixed model latency scale
+    const double mean_B = 0.02;             // static competitor: same mean...
+    const double std_B = 0.004;             // ...with a fixed 0.2 coefficient of variation
     
     for (int iter = 1; iter <= 5; ++iter) {
         std::cout << "\n=== Live Update Tick " << iter << " ===" << std::endl;
         
-        double live_mu = live_latency.get_mu();
-        double live_sigma = live_latency.get_sigma();
+        double live_mean = live_latency.get_mean_latency();
+        double live_std = live_latency.get_std_latency();
+        double cv_live = (live_mean > 0.0) ? live_std / live_mean : 0.0;
         
-        std::cout << "Fitted Live Latency: mu=" << live_mu << ", sigma=" << live_sigma 
-                  << " (n=" << live_latency.get_sample_count() << ")" << std::endl;
+        std::cout << "Fitted Live Latency: mean=" << live_mean << ", std=" << live_std 
+                  << ", CV=" << cv_live << " (n=" << live_latency.get_sample_count() << ")" << std::endl;
         
-        if (std::isnan(live_sigma) || live_sigma <= 0.0) {
-            std::cout << "Insufficient samples for variance estimate. Skipping." << std::endl;
+        if (std::isnan(cv_live) || cv_live <= 0.0) {
+            std::cout << "Insufficient samples for dispersion estimate. Skipping." << std::endl;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             continue;
         }
         
-        run_simulation(live_sigma, sigma_B_static, "Live Dynamic Game Engine");
+        // Clamp the live CV to a sane band; loopback heavy tails can spike it.
+        if (cv_live < 0.01) cv_live = 0.01;
+        if (cv_live > 2.0) cv_live = 2.0;
+        
+        double mean_A = model_mean_latency;
+        double std_A = model_mean_latency * cv_live; // live jitter at fixed model scale
+        
+        run_simulation(mean_A, std_A, mean_B, std_B, "Live Dynamic Game Engine");
         
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
